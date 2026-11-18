@@ -80,3 +80,32 @@ describe("loadConfig", () => {
     expect(apiKeyEnvTag("test")).toBe("test");
   });
 });
+
+describe("remote SFTP server and bucket in local development", () => {
+  const sftp = {
+    SFTPGO_API_URL: "https://sftpgo-dev.example.com",
+    SFTPGO_ADMIN_USER: "admin",
+    SFTPGO_ADMIN_PASSWORD: "pw",
+    SFTP_PUBLIC_HOST: "sftp.example.com",
+    SFTP_PUBLIC_PORT: "41555",
+    UPLOADS_BUCKET: "b",
+    S3_ENDPOINT: "https://storage.example.com",
+    S3_ACCESS_KEY_ID: "k",
+    S3_SECRET_ACCESS_KEY: "s",
+  };
+  it("is refused locally unless explicitly allowed", () => {
+    expect(() => loadConfig({ ...base, ...sftp, APP_ENV: "local" })).toThrow(/localhost/);
+    expect(
+      loadConfig({ ...base, ...sftp, APP_ENV: "local", ALLOW_REMOTE_SERVICES: "true" })
+        .ALLOW_REMOTE_SERVICES,
+    ).toBe(true);
+  });
+  it("can never be allowed in tests or hosted environments", () => {
+    expect(() =>
+      loadConfig({ ...base, ...sftp, APP_ENV: "test", ALLOW_REMOTE_SERVICES: "true" }),
+    ).toThrow();
+    expect(() =>
+      loadConfig({ ...base, ...sftp, APP_ENV: "staging", ALLOW_REMOTE_SERVICES: "true" }),
+    ).toThrow(/ALLOW_REMOTE_SERVICES/);
+  });
+});

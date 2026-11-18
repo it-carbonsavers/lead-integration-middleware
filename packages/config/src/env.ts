@@ -102,6 +102,14 @@ export const envSchema = z
     /** Address providers connect to (Railway: the SFTPGo service's TCP proxy host and port). */
     SFTP_PUBLIC_HOST: z.string().optional(),
     SFTP_PUBLIC_PORT: z.coerce.number().int().min(1).max(65535).optional(),
+    /**
+     * Local development only: allow SFTPGO_API_URL and S3_ENDPOINT to point at a remote (e.g. Railway
+     * development) SFTP server and bucket. Off by default; rejected unless APP_ENV is local.
+     */
+    ALLOW_REMOTE_SERVICES: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
     /** SFTPGo admin REST API (Railway: private network address, e.g. http://sftpgo.railway.internal:8080). */
     SFTPGO_API_URL: z
       .string()
@@ -218,8 +226,15 @@ export const envSchema = z
         path: ["UPLOADS_PREFIX"],
         message: 'must be set (e.g. "uploads/") when uploads and recordings share one bucket',
       });
-    // Local development and tests must never reach a real (e.g. Railway) SFTP server or bucket.
-    if (env.APP_ENV === "local" || env.APP_ENV === "test") {
+    // Local development and tests must never reach a real (e.g. Railway) SFTP server or bucket,
+    // unless a developer deliberately opts in (local only, never in tests).
+    if (env.ALLOW_REMOTE_SERVICES && env.APP_ENV !== "local")
+      ctx.addIssue({
+        code: "custom",
+        path: ["ALLOW_REMOTE_SERVICES"],
+        message: "may only be set when APP_ENV is local",
+      });
+    if ((env.APP_ENV === "local" && !env.ALLOW_REMOTE_SERVICES) || env.APP_ENV === "test") {
       for (const n of ["SFTPGO_API_URL", "S3_ENDPOINT"] as const) {
         const v = env[n];
         if (v && !isLocalUrl(v))
