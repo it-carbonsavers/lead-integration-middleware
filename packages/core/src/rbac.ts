@@ -60,6 +60,7 @@ export const ROLES: Record<string, { description: string; permissions: readonly 
       "reports.read",
       "recordings.read",
       "recordings.upload",
+      "recordings.link",
     ],
   },
   org_viewer: {

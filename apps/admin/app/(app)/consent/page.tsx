@@ -17,13 +17,13 @@ import { api, type Paged } from "@/lib/api";
 import { can, isProvider, isStaff, useMe } from "@/lib/me";
 import type { Options } from "@/lib/types";
 import { UploadRecordings } from "@/components/upload-recordings";
+import { LeadPicker, useSourceLeads } from "@/components/lead-picker";
 import {
   Button,
   Card,
   EmptyState,
   ErrorBanner,
   fmtDate,
-  Input,
   Notice,
   PageHeader,
   Pagination,
@@ -96,7 +96,8 @@ const MATCHED_BY: Record<string, string> = {
   recording_ref: "recording reference",
   naming_convention: "file name",
   external_lead_id: "source reference",
-  admin: "an administrator",
+  admin: "manual link",
+  uploader: "lead chosen at upload",
 };
 const kb = (b: string) => `${Math.max(1, Math.round(Number(b) / 1024))} KB`;
 
@@ -245,34 +246,49 @@ function LeadsTab() {
   );
 }
 
-function LinkToLead({ id, onDone }: { id: string; onDone: () => void }) {
+function LinkToLead({
+  id,
+  platform,
+  onDone,
+}: {
+  id: string;
+  platform: string;
+  onDone: () => void;
+}) {
+  const me = useMe();
+  // Providers only ever see their own leads; staff see the recording's source.
+  const leads = useSourceLeads(isProvider(me) ? null : platform);
   const [ref, setRef] = useState("");
   const [error, setError] = useState<string | null>(null);
   return (
-    <form
-      className="mt-2 flex items-center gap-2"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setError(null);
-        try {
-          await api.post(`/recordings/${id}/link`, { lead_ref: ref.trim().toUpperCase() });
-          onDone();
-        } catch (err) {
-          setError((err as Error).message);
-        }
-      }}
-    >
-      <Input
-        className="h-8 w-56 py-1 text-xs"
-        placeholder="Lead reference (LD-…)"
-        value={ref}
-        onChange={(e) => setRef(e.target.value)}
-      />
-      <Button size="sm" type="submit">
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <div className="w-72 max-w-full">
+        <LeadPicker
+          leads={leads.data}
+          failed={Boolean(leads.error)}
+          onRetry={() => void leads.reload()}
+          value={ref}
+          onChange={setRef}
+          emptyLabel="Choose the lead for this recording…"
+        />
+      </div>
+      <Button
+        size="sm"
+        disabled={!ref}
+        onClick={async () => {
+          setError(null);
+          try {
+            await api.post(`/recordings/${id}/link`, { lead_ref: ref });
+            onDone();
+          } catch (err) {
+            setError((err as Error).message);
+          }
+        }}
+      >
         Link
       </Button>
       {error && <span className="text-xs text-red-600">{error}</span>}
-    </form>
+    </div>
   );
 }
 
@@ -364,6 +380,7 @@ function FilesTab() {
                 {linking === r.id && (
                   <LinkToLead
                     id={r.id}
+                    platform={r.platform}
                     onDone={() => {
                       setLinking(null);
                       reload();

@@ -158,6 +158,21 @@ export async function adminRecordingRoutes(app: FastifyInstance, opts: AdminRout
       },
     },
     async (req) => {
+      // Providers (and organisation-scoped staff) may only link their own recordings; the lead
+      // must belong to the same source as the recording (checked in linkRecording).
+      const a = req.admin!;
+      const rec = await db
+        .selectFrom("consent_recordings as r")
+        .innerJoin("platforms as p", "p.id", "r.platform_id")
+        .select(["r.platform_id", "p.organisation_id"])
+        .where("r.id", "=", req.params.id)
+        .executeTakeFirst();
+      if (
+        !rec ||
+        (a.platformId && rec.platform_id !== a.platformId) ||
+        (a.organisationId && rec.organisation_id !== a.organisationId)
+      )
+        throw problems.notFound();
       try {
         await linkRecording(
           {
@@ -285,6 +300,11 @@ export async function adminRecordingRoutes(app: FastifyInstance, opts: AdminRout
         querystring: z.object({
           filename: z.string().trim().min(1).max(255),
           platform: z.string().max(16).optional(),
+          /** Attach to this lead (same source) instead of matching by file name. */
+          lead_ref: z
+            .string()
+            .regex(/^LD-[0-9A-Z]{26}$/)
+            .optional(),
         }),
       },
     },
@@ -309,6 +329,18 @@ export async function adminRecordingRoutes(app: FastifyInstance, opts: AdminRout
         if (a.organisationId && p.organisation_id !== a.organisationId) throw problems.notFound();
       }
       if (p.status !== "active") throw problems.conflict("This lead source is suspended");
+      let chosenLead: { id: string; uploadedBy: string | null } | undefined;
+      if (req.query.lead_ref) {
+        const lead = await db
+          .selectFrom("leads")
+          .select("id")
+          .where("lead_ref", "=", req.query.lead_ref)
+          .where("platform_id", "=", p.id)
+          .executeTakeFirst();
+        // Same answer whether the lead does not exist or belongs to another source.
+        if (!lead) throw problems.validation([{ path: "lead_ref", code: "not_found" }]);
+        chosenLead = { id: lead.id, uploadedBy: a.id };
+      }
 
       // Keep only the file name the browser sent (never a path).
       const fileName = req.query.filename.split(/[\\/]/).pop()!;
@@ -324,6 +356,7 @@ export async function adminRecordingRoutes(app: FastifyInstance, opts: AdminRout
         {
           platformId: p.id,
           mode: "portal_upload",
+          ...(chosenLead ? { chosenLead } : {}),
           remotePath: `portal/${now.toISOString()}/${fileName}`,
           fileName,
           size: req.body.length,

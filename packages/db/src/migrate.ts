@@ -15,6 +15,7 @@ import * as m0006 from "./migrations/0006_retention_and_status.js";
 import * as m0007 from "./migrations/0007_sftp_management.js";
 import * as m0008 from "./migrations/0008_hosted_sftp_only.js";
 import * as m0009 from "./migrations/0009_portal_upload.js";
+import * as m0010 from "./migrations/0010_upload_lead_choice.js";
 
 export const MIGRATIONS: Record<string, Migration> = {
   "0001_foundation": m0001,
@@ -26,6 +27,7 @@ export const MIGRATIONS: Record<string, Migration> = {
   "0007_sftp_management": m0007,
   "0008_hosted_sftp_only": m0008,
   "0009_portal_upload": m0009,
+  "0010_upload_lead_choice": m0010,
 };
 
 const TABLE = "schema_migrations";

@@ -320,6 +320,77 @@ describe("uploading recordings in the portal", () => {
   });
 });
 
+describe("choosing the lead for a recording", () => {
+  const submitB = async (ext: string) => {
+    const keyB = (await issueApiCredential(t.db, { platformId: pB.id, envTag: "test" }, actor))
+      .token;
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/leads",
+      headers: { authorization: `Bearer ${keyB}` },
+      payload: {
+        schema_version: "1",
+        external_lead_id: ext,
+        transferred_at: new Date(Date.now() - 60_000).toISOString(),
+        customer: { first_name: "Pick", last_name: ext, phone: "0491 570 006" },
+        agent: { external_id: "AG-P" },
+        consent: { verbal_consent: true, recording_ref: `REF-${ext}` },
+      },
+    });
+    return res.json().lead_ref as string;
+  };
+
+  it("attaches an upload to the lead chosen by the provider, whatever its name", async () => {
+    const leadRef = await submitB("CHOOSE-1");
+    const res = await provider.upload(
+      `filename=whatever-name.wav&lead_ref=${leadRef}`,
+      makeTestWav(0.4, 701),
+    );
+    expect(res.json()).toMatchObject({ result: "matched", lead_ref: leadRef });
+    const rec = (await provider.get("/recordings?pageSize=50"))
+      .json()
+      .items.find(
+        (r: { original_filename: string }) => r.original_filename === "whatever-name.wav",
+      );
+    expect(rec).toMatchObject({ status: "matched", matched_by: "uploader", lead_ref: leadRef });
+    // A lead of another source cannot be chosen (same answer as a lead that does not exist).
+    const aLead = (await staff.get("/leads?platform=PRVA&pageSize=1")).json().items[0]?.lead_ref;
+    if (aLead)
+      expect(
+        (await provider.upload(`filename=x.wav&lead_ref=${aLead}`, makeTestWav(0.3, 702)))
+          .statusCode,
+      ).toBe(422);
+  });
+
+  it("lets a provider link its own unmatched recording, and only its own", async () => {
+    const leadRef = await submitB("LINK-1");
+    const up = await provider.upload("filename=NO-MATCH-NAME.wav", makeTestWav(0.4, 703));
+    expect(up.json()).toMatchObject({ result: "not_matched" });
+    const rec = (await provider.get("/recordings?status=unmatched&pageSize=50"))
+      .json()
+      .items.find(
+        (r: { original_filename: string }) => r.original_filename === "NO-MATCH-NAME.wav",
+      );
+    expect(
+      (await provider.post(`/recordings/${rec.id}/link`, { lead_ref: leadRef })).statusCode,
+    ).toBe(200);
+    expect((await provider.get(`/leads/${leadRef}`)).json().consent.status).toBe("matched");
+
+    // A recording of another source: not visible, not linkable.
+    const other = await staff.upload(
+      "filename=OTHER-SOURCE.wav&platform=PRVA",
+      makeTestWav(0.4, 704),
+    );
+    expect(other.json()).toMatchObject({ result: "not_matched" });
+    const otherRec = (await staff.get("/recordings?platform=PRVA&status=unmatched&pageSize=50"))
+      .json()
+      .items.find((r: { original_filename: string }) => r.original_filename === "OTHER-SOURCE.wav");
+    expect(
+      (await provider.post(`/recordings/${otherRec.id}/link`, { lead_ref: leadRef })).statusCode,
+    ).toBe(404);
+  });
+});
+
 describe("consent status sync to the destination", () => {
   it("updates the delivered lead at the mock destination when its recording is matched", async () => {
     const res = await app.inject({

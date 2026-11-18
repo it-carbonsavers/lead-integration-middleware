@@ -6,10 +6,11 @@ import { api } from "@/lib/api";
 import { isProvider, useMe } from "@/lib/me";
 import type { Options } from "@/lib/types";
 import { Button, Field, Modal, Select, useLoad } from "@/components/ui";
+import { LeadPicker, useSourceLeads } from "@/components/lead-picker";
 
 type Result =
   | { state: "uploading" }
-  | { state: "matched"; leadRef: string }
+  | { state: "matched"; leadRef: string; name?: string | undefined }
   | { state: "not_matched" }
   | { state: "duplicate" }
   | { state: "rejected"; reason: string }
@@ -36,7 +37,12 @@ export function UploadRecordings({ onClose, onDone }: { onClose: () => void; onD
   const [files, setFiles] = useState<File[]>([]);
   const [results, setResults] = useState<Record<string, Result>>({});
   const [busy, setBusy] = useState(false);
+  // Optional lead chosen per file; empty = match by the file name.
+  const [leadFor, setLeadFor] = useState<Record<string, string>>({});
   const input = useRef<HTMLInputElement>(null);
+  const sourceChosen = provider || Boolean(platform);
+  const leads = useSourceLeads(provider ? null : platform || null);
+  const leadName = (ref: string) => leads.data?.find((l) => l.lead_ref === ref)?.name;
 
   async function uploadAll() {
     setBusy(true);
@@ -49,6 +55,7 @@ export function UploadRecordings({ onClose, onDone }: { onClose: () => void; onD
         try {
           const qs = new URLSearchParams({ filename: file.name });
           if (!provider) qs.set("platform", platform);
+          if (leadFor[file.name]) qs.set("lead_ref", leadFor[file.name]!);
           const res = await fetch(`/admin-api/recordings/upload?${qs}`, {
             method: "POST",
             credentials: "same-origin",
@@ -63,7 +70,11 @@ export function UploadRecordings({ onClose, onDone }: { onClose: () => void; onD
           };
           result =
             body.result === "matched"
-              ? { state: "matched", leadRef: body.lead_ref ?? "" }
+              ? {
+                  state: "matched",
+                  leadRef: body.lead_ref ?? "",
+                  name: leadName(body.lead_ref ?? ""),
+                }
               : body.result === "not_matched"
                 ? { state: "not_matched" }
                 : body.result === "duplicate"
@@ -93,7 +104,14 @@ export function UploadRecordings({ onClose, onDone }: { onClose: () => void; onD
       <div className="space-y-4">
         {!provider && (
           <Field label="Lead source">
-            <Select value={platform} onChange={(e) => setPlatform(e.target.value)} disabled={busy}>
+            <Select
+              value={platform}
+              onChange={(e) => {
+                setPlatform(e.target.value);
+                setLeadFor({});
+              }}
+              disabled={busy}
+            >
               <option value="">Choose a source…</option>
               {options.data?.sources
                 .filter((s) => s.status === "active")
@@ -134,11 +152,13 @@ export function UploadRecordings({ onClose, onDone }: { onClose: () => void; onD
             onChange={(e) => {
               setFiles([...(e.target.files ?? [])]);
               setResults({});
+              setLeadFor({});
             }}
           />
           <p className="mt-2 text-xs text-slate-500">
-            Name each file after the recording reference sent with the lead, e.g.{" "}
-            <code>TRX-123.wav</code>. mp3, wav, m4a or ogg, up to {MAX_MB} MB.
+            Each file is matched by its name (the recording reference sent with the lead, e.g.{" "}
+            <code>TRX-123.wav</code>), or choose the lead for it below. mp3, wav, m4a or ogg, up to{" "}
+            {MAX_MB} MB.
           </p>
         </div>
 
@@ -152,6 +172,19 @@ export function UploadRecordings({ onClose, onDone }: { onClose: () => void; onD
                   <div className="text-xs text-slate-500">
                     <ResultText result={results[f.name]} size={f.size} />
                   </div>
+                  {!results[f.name] && sourceChosen && (
+                    <div className="mt-1.5">
+                      <LeadPicker
+                        leads={leads.data}
+                        failed={Boolean(leads.error)}
+                        onRetry={() => void leads.reload()}
+                        value={leadFor[f.name] ?? ""}
+                        onChange={(ref) => setLeadFor((m) => ({ ...m, [f.name]: ref }))}
+                        emptyLabel="Match by file name (automatic)"
+                        disabled={busy}
+                      />
+                    </div>
+                  )}
                 </div>
               </li>
             ))}
@@ -196,7 +229,12 @@ function ResultText({ result, size }: { result?: Result; size: number }) {
     case "uploading":
       return <>Uploading…</>;
     case "matched":
-      return <>Uploaded and matched to lead {result.leadRef}</>;
+      return (
+        <>
+          Uploaded and matched to{" "}
+          {result.name ? `${result.name} (${result.leadRef})` : result.leadRef}
+        </>
+      );
     case "not_matched":
       return (
         <>Uploaded, but no lead with this reference yet. It is matched when the lead arrives.</>

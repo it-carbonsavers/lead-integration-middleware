@@ -286,7 +286,8 @@ export interface ConsentRecordingsTable {
   sha256: Buffer;
   status: RecordingStatus;
   rejection_reason: string | null;
-  matched_by: "recording_ref" | "naming_convention" | "external_lead_id" | "admin" | null;
+  matched_by:
+    "recording_ref" | "naming_convention" | "external_lead_id" | "admin" | "uploader" | null;
   matched_at: Date | null;
   retention_until: Date;
   created_at: CreatedAt;
