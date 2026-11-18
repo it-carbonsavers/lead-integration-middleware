@@ -1,6 +1,6 @@
 "use client";
 
-import { StatusPill } from "@/components/ui";
+import { CopyValue, StatusPill } from "@/components/ui";
 
 export interface Source {
   id: string;
@@ -34,4 +34,32 @@ export function RecordingHealth({
   if (s.sftp_last_error) return <StatusPill label={`${method} · problem`} tone="red" />;
   if (s.sftp_last_success_at) return <StatusPill label={`${method} · working`} tone="green" />;
   return <StatusPill label={`${method} · not checked yet`} tone="amber" />;
+}
+
+export interface HostKey {
+  type: string;
+  fingerprint: string;
+}
+
+/** The SFTP server's host-key fingerprints, one per key type. A provider's SFTP client shows
+ * one of them on first connect, depending on the key type it prefers. */
+export function HostKeyFingerprints({ items, title }: { items: HostKey[]; title: string }) {
+  if (!items.length) return null;
+  return (
+    <div>
+      <div className="mb-1 text-xs text-slate-500">{title}</div>
+      <div className="space-y-1.5">
+        {items.map((k) => (
+          <div key={k.type} className="flex items-center gap-2">
+            <span className="w-16 shrink-0 text-[11px] font-semibold tracking-wide text-slate-500">
+              {k.type}
+            </span>
+            <div className="min-w-0 flex-1">
+              <CopyValue value={k.fingerprint} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

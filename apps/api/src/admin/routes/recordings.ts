@@ -24,7 +24,8 @@ import {
   linkRecording,
   RecordingLinkError,
   recordingStore,
-  serverHostKeyFingerprint,
+  serverHostKeyFingerprints,
+  type HostKeyFingerprint,
   sftpRuntime,
   syncSftpAccount,
   testSftpConnection,
@@ -310,27 +311,33 @@ export async function adminRecordingRoutes(app: FastifyInstance, opts: AdminRout
   );
 
   // Our SFTP server's host-key fingerprint, which providers check on first connect.
-  let fpCache: { value: string | null; at: number; addr: string } | null = null;
-  const hostKeyFingerprint = async () => {
-    if (!rt.host || !rt.port) return null;
+  let fpCache: { value: HostKeyFingerprint[]; at: number; addr: string } | null = null;
+  const hostKeyFingerprints = async (): Promise<HostKeyFingerprint[]> => {
+    if (!rt.host || !rt.port) return [];
     const addr = `${rt.host}:${rt.port}`;
     if (
       !fpCache ||
       fpCache.addr !== addr ||
-      (fpCache.value === null && Date.now() - fpCache.at > 15_000)
+      (fpCache.value.length === 0 && Date.now() - fpCache.at > 15_000)
     ) {
-      fpCache = { value: await serverHostKeyFingerprint(rt.host, rt.port), at: Date.now(), addr };
+      fpCache = { value: await serverHostKeyFingerprints(rt.host, rt.port), at: Date.now(), addr };
     }
     return fpCache.value;
   };
-  const hostedServerInfo = async () => ({
-    server: rt.backend === "sftpgo" ? "SFTPGo" : null,
-    host: rt.host,
-    port: rt.port,
-    host_key_fingerprint: await hostKeyFingerprint(),
-    upload_directory: "/",
-    max_file_mb: config.RECORDING_MAX_MB,
-  });
+  const hostedServerInfo = async () => {
+    const fingerprints = await hostKeyFingerprints();
+    return {
+      server: rt.backend === "sftpgo" ? "SFTPGo" : null,
+      host: rt.host,
+      port: rt.port,
+      // All host keys the server offers, labelled by type; the first (ED25519 when present) is
+      // kept as host_key_fingerprint for existing consumers.
+      host_key_fingerprints: fingerprints,
+      host_key_fingerprint: fingerprints[0]?.fingerprint ?? null,
+      upload_directory: "/",
+      max_file_mb: config.RECORDING_MAX_MB,
+    };
+  };
 
   /** SFTP settings for a source. Secrets are never returned: only whether they are set. */
   r.get(

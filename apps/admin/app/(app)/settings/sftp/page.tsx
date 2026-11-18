@@ -2,10 +2,14 @@
 
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { RecordingHealth, type Source } from "@/components/sources";
+import {
+  HostKeyFingerprints,
+  RecordingHealth,
+  type HostKey,
+  type Source,
+} from "@/components/sources";
 import {
   Card,
-  CopyValue,
   KeyValue,
   Notice,
   Skeleton,
@@ -28,6 +32,7 @@ export default function SftpSettingsPage() {
               host: string | null;
               port: number | null;
               host_key_fingerprint: string | null;
+              host_key_fingerprints?: HostKey[];
               max_file_mb: number;
             };
           }>(`/platforms/${first.code}/sftp`)
@@ -74,14 +79,10 @@ export default function SftpSettingsPage() {
                 { label: "Largest file", value: `${server.data.our_server.max_file_mb} MB` },
               ]}
             />
-            {server.data.our_server.host_key_fingerprint && (
-              <div>
-                <div className="mb-1 text-xs text-slate-500">
-                  Server fingerprint (give this to providers)
-                </div>
-                <CopyValue value={server.data.our_server.host_key_fingerprint} />
-              </div>
-            )}
+            <HostKeyFingerprints
+              items={server.data.our_server.host_key_fingerprints ?? []}
+              title="Server fingerprints (give these to providers; their SFTP client shows one of them)"
+            />
           </div>
         ) : sources.loading ? (
           <Skeleton className="h-24" />

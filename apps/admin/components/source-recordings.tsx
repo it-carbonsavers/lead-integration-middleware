@@ -12,6 +12,7 @@ import {
   Wifi,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { HostKeyFingerprints, type HostKey } from "@/components/sources";
 import {
   Button,
   Card,
@@ -52,6 +53,7 @@ interface SftpInfo {
     host: string | null;
     port: number | null;
     host_key_fingerprint: string | null;
+    host_key_fingerprints?: HostKey[];
     upload_directory: string;
     max_file_mb: number;
   };
@@ -467,14 +469,10 @@ export function SourceRecordings({ code }: { code: string }) {
                     },
                   ]}
                 />
-                {d.our_server.host_key_fingerprint && (
-                  <div>
-                    <div className="mb-1 text-xs text-slate-500">
-                      Our server fingerprint (they should check it on first connect)
-                    </div>
-                    <CopyValue value={d.our_server.host_key_fingerprint} />
-                  </div>
-                )}
+                <HostKeyFingerprints
+                  items={d.our_server.host_key_fingerprints ?? []}
+                  title="Our server fingerprints (on first connect, their SFTP client shows one of these; it must match)"
+                />
                 <p className="text-xs text-slate-500">
                   File names: the recording reference sent with the lead, e.g.{" "}
                   <code>TRX-123.wav</code>, or{" "}
