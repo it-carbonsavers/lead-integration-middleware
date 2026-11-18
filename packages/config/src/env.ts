@@ -28,6 +28,17 @@ export const envSchema = z
     APP_ENV: z.enum(["local", "test", "staging", "production"]).default("local"),
     PORT: intFromEnv(3000, 1, 65535),
     HOST: z.string().min(1).default("0.0.0.0"),
+    /**
+     * Public address of this API, shown to admins so they can give it to lead providers,
+     * e.g. https://api.example.com. Defaults to the domain Railway assigns (RAILWAY_PUBLIC_DOMAIN),
+     * or http://localhost:<PORT> in local development.
+     */
+    PUBLIC_API_URL: z
+      .string()
+      .regex(/^https?:\/\/[^/]+$/, "scheme and host only, e.g. https://api.example.com")
+      .optional(),
+    /** Set automatically by Railway on services with a public domain. */
+    RAILWAY_PUBLIC_DOMAIN: z.string().optional(),
     LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
 
     DATABASE_URL: z
@@ -278,6 +289,14 @@ function isPrivateNetworkHost(databaseUrl: string): boolean {
 }
 
 export type Env = z.infer<typeof envSchema>;
+
+/** The API's public base address for providers, or null when it cannot be known. */
+export function publicApiUrl(env: Env): string | null {
+  if (env.PUBLIC_API_URL) return env.PUBLIC_API_URL;
+  if (env.RAILWAY_PUBLIC_DOMAIN) return `https://${env.RAILWAY_PUBLIC_DOMAIN}`;
+  if (env.APP_ENV === "local" || env.APP_ENV === "test") return `http://localhost:${env.PORT}`;
+  return null;
+}
 
 export class ConfigError extends Error {
   constructor(public readonly problems: string[]) {

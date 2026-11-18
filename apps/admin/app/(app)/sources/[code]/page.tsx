@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { can, useMe } from "@/lib/me";
 import { RecordingHealth, type Source } from "@/components/sources";
 import { SourceRecordings } from "@/components/source-recordings";
+import { ProviderApiDetails } from "@/components/api-details";
 import {
   Button,
   Card,
@@ -250,6 +251,8 @@ function ApiTab({ s, onChanged }: { s: Source; onChanged: () => void }) {
           />
         )}
       </Card>
+
+      <ProviderApiDetails />
 
       <Card title="Access rules">
         {saved && (

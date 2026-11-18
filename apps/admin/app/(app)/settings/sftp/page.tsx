@@ -8,17 +8,7 @@ import {
   type HostKey,
   type Source,
 } from "@/components/sources";
-import {
-  Card,
-  KeyValue,
-  Notice,
-  Skeleton,
-  Table,
-  Td,
-  Th,
-  timeAgo,
-  useLoad,
-} from "@/components/ui";
+import { Card, KeyValue, Notice, Skeleton, Table, Td, Th, timeAgo, useLoad } from "@/components/ui";
 
 export default function SftpSettingsPage() {
   const sources = useLoad(() => api.get<{ items: Source[] }>("/platforms"), []);

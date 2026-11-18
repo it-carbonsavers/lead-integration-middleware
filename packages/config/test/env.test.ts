@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { apiKeyEnvTag, ConfigError, loadConfig } from "../src/index.js";
+import { apiKeyEnvTag, ConfigError, loadConfig, publicApiUrl } from "../src/index.js";
 
 const key = () => randomBytes(32).toString("base64");
 const dbOnly = { DATABASE_URL: "postgres://u:p@localhost:5432/db" };
@@ -107,5 +107,29 @@ describe("remote SFTP server and bucket in local development", () => {
     expect(() =>
       loadConfig({ ...base, ...sftp, APP_ENV: "staging", ALLOW_REMOTE_SERVICES: "true" }),
     ).toThrow(/ALLOW_REMOTE_SERVICES/);
+  });
+});
+
+describe("public API address shown to admins", () => {
+  it("uses PUBLIC_API_URL, then Railway's domain, then localhost when local", () => {
+    expect(
+      publicApiUrl(
+        loadConfig({ ...base, PUBLIC_API_URL: "https://api.example.com", APP_ENV: "staging" }),
+      ),
+    ).toBe("https://api.example.com");
+    expect(
+      publicApiUrl(
+        loadConfig({
+          ...base,
+          RAILWAY_PUBLIC_DOMAIN: "api-dev.up.railway.app",
+          APP_ENV: "staging",
+        }),
+      ),
+    ).toBe("https://api-dev.up.railway.app");
+    expect(publicApiUrl(loadConfig({ ...base, APP_ENV: "local", PORT: "3000" }))).toBe(
+      "http://localhost:3000",
+    );
+    expect(publicApiUrl(loadConfig({ ...base, APP_ENV: "staging" }))).toBeNull();
+    expect(() => loadConfig({ ...base, PUBLIC_API_URL: "https://api.example.com/v1" })).toThrow();
   });
 });
