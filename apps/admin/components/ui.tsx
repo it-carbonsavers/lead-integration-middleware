@@ -158,10 +158,27 @@ export function Button({
   icon?: LucideIcon;
   loading?: boolean;
 }) {
+  // An async onClick (saving, issuing a key, revoking...) shows a spinner and blocks further
+  // clicks until it finishes, so a slow request cannot be submitted twice.
+  const [pending, setPending] = useState(false);
+  const busy = Boolean(loading) || pending;
+  const { onClick, ...rest } = props;
+  const handleClick = onClick
+    ? (e: React.MouseEvent<HTMLButtonElement>) => {
+        if (pending) return;
+        const result = onClick(e) as unknown;
+        if (result instanceof Promise) {
+          setPending(true);
+          void result.finally(() => setPending(false));
+        }
+      }
+    : undefined;
   return (
     <button
-      {...props}
-      disabled={props.disabled || loading}
+      {...rest}
+      onClick={handleClick}
+      aria-busy={busy || undefined}
+      disabled={props.disabled || busy}
       className={cx(
         "inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-50",
         size === "sm" ? "px-2.5 py-1.5 text-xs" : "px-3.5 py-2 text-sm",
@@ -173,7 +190,7 @@ export function Button({
         className,
       )}
     >
-      {loading ? (
+      {busy ? (
         <Loader2 className="h-4 w-4 animate-spin" />
       ) : Icon ? (
         <Icon className="h-4 w-4" />
