@@ -1,0 +1,18 @@
+{
+  "name": "@lim/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "libphonenumber-js": "^1.13.16",
+    "ulidx": "^2.4.1",
+    "zod": "^4.6.7"
+  }
+}

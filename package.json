@@ -1,0 +1,63 @@
+{
+  "name": "lead-integration-middleware",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Lead Integration Middleware: receives leads from external lead providers, tracks them and delivers them to a configurable destination (HubSpot first).",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "tsc -b --clean",
+    "typecheck": "tsc -b && tsc -p tsconfig.tests.json && npm run typecheck -w @lim/admin",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev:api": "npm run dev -w @lim/api",
+    "dev:worker": "npm run dev -w @lim/worker",
+    "db:migrate": "npm run migrate -w @lim/db -- up",
+    "db:migrate:down": "npm run migrate -w @lim/db -- down",
+    "db:status": "npm run migrate -w @lim/db -- status",
+    "admin": "npm run cli -w @lim/api --",
+    "seed": "npm run seed -w @lim/api --",
+    "simulate": "npm run simulate -w @lim/api --",
+    "setup:local": "node scripts/setup-local.mjs",
+    "db:up": "docker compose up -d --wait postgres",
+    "db:down": "docker compose down",
+    "build:all": "tsc -b",
+    "start:api": "node --env-file-if-exists=.env apps/api/dist/server.js",
+    "start:worker": "node --env-file-if-exists=.env apps/worker/dist/worker.js",
+    "openapi": "npm run openapi -w @lim/api",
+    "hubspot:plan": "npm run hubspot:plan -w @lim/api",
+    "dev:admin": "npm run dev -w @lim/admin",
+    "build:admin": "npm run build -w @lim/admin",
+    "start:admin": "npm run start -w @lim/admin",
+    "dev:all": "concurrently -k -n api,worker,admin -c blue,magenta,green \"npm:dev:api\" \"npm:dev:worker\" \"npm:dev:admin\"",
+    "start:local": "npm run db:up && npm run db:migrate && npm run dev:all",
+    "backup:local": "bash scripts/backup-local.sh --verify",
+    "load-test": "node scripts/load-test.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@testcontainers/postgresql": "^12.2.1",
+    "@types/node": "^22.20.5",
+    "@types/pg": "^8.23.1",
+    "concurrently": "^9.2.5",
+    "eslint": "^10.15.0",
+    "globals": "^17.14.0",
+    "pino": "^10.4.0",
+    "prettier": "^3.10.1",
+    "testcontainers": "^12.2.1",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^5.1.0"
+  }
+}

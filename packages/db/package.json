@@ -1,0 +1,23 @@
+{
+  "name": "@lim/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "migrate": "tsx --env-file-if-exists=../../.env --conditions=source src/bin/migrate.ts",
+    "migrate:prod": "node --env-file-if-exists=../../.env dist/bin/migrate.js"
+  },
+  "dependencies": {
+    "@lim/config": "^0.1.0",
+    "@lim/core": "^0.1.0",
+    "kysely": "^0.29.9",
+    "pg": "^8.23.1"
+  }
+}

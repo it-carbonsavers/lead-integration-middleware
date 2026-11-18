@@ -1,0 +1,26 @@
+{
+  "name": "@lim/recordings",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "devDependencies": {
+    "@types/ssh2": "^1.15.6",
+    "@types/ssh2-sftp-client": "^9.0.6"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1170.0",
+    "@lim/config": "^0.1.0",
+    "@lim/core": "^0.1.0",
+    "@lim/db": "^0.1.0",
+    "kysely": "^0.29.9",
+    "ssh2": "^1.17.0",
+    "ssh2-sftp-client": "^12.1.1"
+  }
+}

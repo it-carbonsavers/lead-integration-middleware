@@ -1,0 +1,42 @@
+{
+  "name": "@lim/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env --conditions=source src/server.ts",
+    "start": "node --env-file-if-exists=../../.env dist/server.js",
+    "cli": "tsx --env-file-if-exists=../../.env --conditions=source src/cli/index.ts",
+    "cli:prod": "node --env-file-if-exists=../../.env dist/cli/index.js",
+    "seed": "tsx --env-file-if-exists=../../.env --conditions=source src/dev/seed.ts",
+    "simulate": "tsx --env-file-if-exists=../../.env --conditions=source src/dev/simulate.ts",
+    "openapi": "tsx --conditions=source src/dev/write-openapi.ts",
+    "hubspot:plan": "tsx --conditions=source src/dev/hubspot-setup-plan.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1170.0",
+    "@fastify/cookie": "^11.1.5",
+    "@fastify/helmet": "^13.2.0",
+    "@fastify/rate-limit": "^11.2.2",
+    "@fastify/swagger": "^9.9.5",
+    "@lim/config": "^0.1.0",
+    "@lim/core": "^0.1.0",
+    "@lim/db": "^0.1.0",
+    "@lim/destinations": "^0.1.0",
+    "@lim/jobs": "^0.1.0",
+    "@lim/recordings": "^0.1.0",
+    "@node-rs/argon2": "^2.2.2",
+    "fastify": "^5.12.8",
+    "fastify-type-provider-zod": "^7.0.0",
+    "libphonenumber-js": "^1.13.16",
+    "openapi-types": "^12.1.3",
+    "ssh2": "^1.17.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/ssh2": "^1.15.6",
+    "@types/ssh2-sftp-client": "^9.0.6",
+    "ssh2-sftp-client": "^12.1.1"
+  }
+}

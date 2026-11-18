@@ -1,0 +1,24 @@
+# Local development infrastructure only. Nothing here is used for deployment.
+# PostgreSQL only, bound to 127.0.0.1. The SFTP server (SFTPGo) and buckets run on Railway:
+# see docs/RAILWAY_DEPLOYMENT.md.
+name: lead-integration-local
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lim
+      POSTGRES_PASSWORD: lim_local_only
+      POSTGRES_DB: lead_integration
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - lim-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lim -d lead_integration"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  lim-pgdata:
