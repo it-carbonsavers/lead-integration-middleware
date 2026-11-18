@@ -364,7 +364,7 @@ function IssueKey({
   );
 }
 
-function LoginsTab({ code }: { code: string }) {
+function LoginsTab({ code, onChanged }: { code: string; onChanged: () => void }) {
   const users = useLoad(() => api.get<{ items: PortalUser[] }>(`/platforms/${code}/users`), [code]);
   const [adding, setAdding] = useState(false);
   const [email, setEmail] = useState("");
@@ -376,6 +376,7 @@ function LoginsTab({ code }: { code: string }) {
     try {
       await fn();
       users.reload();
+      onChanged(); // keeps the "Partner logins" count on the tab up to date
     } catch (e) {
       setError(e);
     }
@@ -656,7 +657,7 @@ function View() {
       {tab === "overview" && <OverviewTab s={s} />}
       {tab === "api" && <ApiTab s={s} onChanged={reload} />}
       {tab === "recordings" && <SourceRecordings code={s.code} />}
-      {tab === "logins" && <LoginsTab code={s.code} />}
+      {tab === "logins" && <LoginsTab code={s.code} onChanged={reload} />}
       {tab === "settings" && <SettingsTab s={s} onChanged={reload} />}
     </>
   );
