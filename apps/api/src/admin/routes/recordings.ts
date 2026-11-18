@@ -3,6 +3,7 @@
  *   GET  /recordings                 list (scoped for provider users)              recordings.read
  *   GET  /recordings/:id/audio       stream the decrypted audio (audited)           recordings.play
  *   POST /recordings/:id/link        link an unmatched recording to a lead          recordings.link
+ *   POST /recordings/upload          upload one recording file in the portal         recordings.upload
  *   GET  /transfers                  SFTP transfer log (scoped for provider users)   recordings.read
  *   POST /transfers/scan             pick up recordings now (all or one source)      platforms.manage
  *   POST /transfers/:id/retry        retry a failed transfer                         platforms.manage
@@ -21,6 +22,7 @@ import { z } from "zod";
 import { problems, QUEUES } from "@lim/core";
 import { writeAudit } from "@lim/db";
 import {
+  ingestRecording,
   linkRecording,
   RecordingLinkError,
   recordingStore,
@@ -235,7 +237,8 @@ export async function adminRecordingRoutes(app: FastifyInstance, opts: AdminRout
       | "transfer.scan_requested"
       | "platform.sftp_updated"
       | "platform.sftp_tested"
-      | "transfer.retry_requested",
+      | "transfer.retry_requested"
+      | "recording.uploaded",
     detail: Record<string, unknown>,
     target?: { type: string; id: string; org?: string },
   ) =>
@@ -254,12 +257,99 @@ export async function adminRecordingRoutes(app: FastifyInstance, opts: AdminRout
   const platformByCode = async (code: string) => {
     const p = await db
       .selectFrom("platforms")
-      .select(["id", "code", "organisation_id", "recording_ingest_mode"])
+      .select(["id", "code", "organisation_id", "recording_ingest_mode", "status"])
       .where("code", "=", code)
       .executeTakeFirst();
     if (!p) throw problems.notFound();
     return p;
   };
+
+  /**
+   * Upload one consent recording in the portal (the alternative to SFTP). The raw file is the
+   * request body (application/octet-stream); the name is in ?filename=. Provider users upload
+   * for their own source; staff choose the source with ?platform=. The file goes through the
+   * same checks, encrypted storage and matching as an SFTP upload.
+   */
+  const maxUploadBytes = config.RECORDING_MAX_MB * 1024 * 1024;
+  app.addContentTypeParser(
+    "application/octet-stream",
+    { parseAs: "buffer", bodyLimit: maxUploadBytes },
+    (_req, body, done) => done(null, body),
+  );
+  r.post(
+    "/recordings/upload",
+    {
+      preHandler: requirePermission("recordings.upload"),
+      bodyLimit: maxUploadBytes,
+      schema: {
+        querystring: z.object({
+          filename: z.string().trim().min(1).max(255),
+          platform: z.string().max(16).optional(),
+        }),
+      },
+    },
+    async (req, reply) => {
+      const a = req.admin!;
+      if (!store) throw problems.unavailable();
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0)
+        throw problems.validation([{ path: "file", code: "empty_file" }]);
+      // A provider can only ever upload for its own source.
+      let p;
+      if (a.platformId) {
+        p = await db
+          .selectFrom("platforms")
+          .select(["id", "code", "organisation_id", "recording_ingest_mode", "status"])
+          .where("id", "=", a.platformId)
+          .executeTakeFirstOrThrow();
+        if (req.query.platform && req.query.platform !== p.code) throw problems.notFound();
+      } else {
+        if (!req.query.platform)
+          throw problems.validation([{ path: "platform", code: "required" }]);
+        p = await platformByCode(req.query.platform);
+        if (a.organisationId && p.organisation_id !== a.organisationId) throw problems.notFound();
+      }
+      if (p.status !== "active") throw problems.conflict("This lead source is suspended");
+
+      // Keep only the file name the browser sent (never a path).
+      const fileName = req.query.filename.split(/[\\/]/).pop()!;
+      const now = new Date();
+      const outcome = await ingestRecording(
+        {
+          db,
+          store,
+          maxBytes: maxUploadBytes,
+          retentionDays: config.RECORDING_RETENTION_DAYS,
+          onMatched: async (leadId) => void (await boss.send(QUEUES.syncConsent.name, { leadId })),
+        },
+        {
+          platformId: p.id,
+          mode: "portal_upload",
+          remotePath: `portal/${now.toISOString()}/${fileName}`,
+          fileName,
+          size: req.body.length,
+          mtime: now,
+          data: req.body,
+        },
+      );
+      const result =
+        outcome.status === "stored"
+          ? outcome.matchedLeadRef
+            ? { result: "matched" as const, lead_ref: outcome.matchedLeadRef }
+            : { result: "not_matched" as const }
+          : outcome.status === "rejected"
+            ? { result: "rejected" as const, reason: outcome.reason }
+            : { result: "duplicate" as const };
+      await audit(
+        req,
+        "recording.uploaded",
+        { platform: p.code, file: fileName, size: req.body.length, ...result },
+        { type: "platform", id: p.id, org: p.organisation_id },
+      );
+      return reply
+        .code(outcome.status === "rejected" ? 422 : 200)
+        .send({ file: fileName, ...result });
+    },
+  );
 
   /** Pick up recordings now: all sources, or one source (body.platform). */
   r.post(

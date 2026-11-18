@@ -11,10 +11,12 @@ import {
   FileX,
   RefreshCw,
   ServerCrash,
+  Upload,
 } from "lucide-react";
 import { api, type Paged } from "@/lib/api";
 import { can, isProvider, isStaff, useMe } from "@/lib/me";
 import type { Options } from "@/lib/types";
+import { UploadRecordings } from "@/components/upload-recordings";
 import {
   Button,
   Card,
@@ -502,9 +504,7 @@ function TransfersTab() {
                 </div>
               </Td>
               <Td>{x.platform}</Td>
-              <Td className="text-slate-600">
-                {x.mode === "sftp_hosted" ? "Uploaded to us" : "Collected by us"}
-              </Td>
+              <Td className="text-slate-600">{TRANSFER_SOURCE[x.mode] ?? x.mode}</Td>
               <Td>
                 <StatusPill status={x.status} />
                 {x.error_code && (
@@ -557,7 +557,17 @@ function TransfersTab() {
   );
 }
 
+/** How a file reached us (transfer_jobs.mode). */
+const TRANSFER_SOURCE: Record<string, string> = {
+  sftp_hosted: "SFTP upload",
+  portal_upload: "Portal upload",
+  sftp_pull: "Collected from provider (old)",
+};
+
 function View() {
+  const me = useMe();
+  const [uploading, setUploading] = useState(false);
+  const [refresh, setRefresh] = useState(0);
   const params = useSearchParams();
   const tab = params.get("tab") ?? "leads";
   const platform = params.get("platform");
@@ -572,7 +582,23 @@ function View() {
       <PageHeader
         title="Consent Recordings"
         description="Verbal-consent recordings from lead sources: what is waiting, what has arrived, and any transfer problems."
+        actions={
+          can(me, "recordings.upload") ? (
+            <Button icon={Upload} onClick={() => setUploading(true)}>
+              Upload recordings
+            </Button>
+          ) : undefined
+        }
       />
+      {uploading && (
+        <UploadRecordings
+          onClose={() => setUploading(false)}
+          onDone={() => {
+            void summary.reload();
+            setRefresh((x) => x + 1);
+          }}
+        />
+      )}
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
           label="Waiting for recording"
@@ -613,9 +639,9 @@ function View() {
           { key: "transfers", label: "Transfer history", href: `/consent?tab=transfers${base}` },
         ]}
       />
-      {tab === "leads" && <LeadsTab />}
-      {tab === "files" && <FilesTab />}
-      {tab === "transfers" && <TransfersTab />}
+      {tab === "leads" && <LeadsTab key={`l${refresh}`} />}
+      {tab === "files" && <FilesTab key={`f${refresh}`} />}
+      {tab === "transfers" && <TransfersTab key={`t${refresh}`} />}
     </>
   );
 }

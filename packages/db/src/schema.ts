@@ -295,7 +295,7 @@ export interface ConsentRecordingsTable {
 export interface TransferJobsTable {
   id: Generated<string>;
   platform_id: string;
-  mode: "sftp_hosted" | "sftp_pull";
+  mode: "sftp_hosted" | "sftp_pull" | "portal_upload";
   remote_path: string;
   remote_size: ColumnType<string, number | string, number | string>;
   remote_mtime: Date;

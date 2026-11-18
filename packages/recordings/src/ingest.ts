@@ -27,7 +27,8 @@ export interface IngestDeps {
 
 export interface IncomingFile {
   platformId: string;
-  mode: "sftp_hosted";
+  /** How the file arrived: our SFTP server, or uploaded in the web portal. */
+  mode: "sftp_hosted" | "portal_upload";
   remotePath: string;
   fileName: string;
   size: number;

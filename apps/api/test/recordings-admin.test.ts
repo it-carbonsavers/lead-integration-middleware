@@ -53,6 +53,13 @@ const as = (cookie: string) => ({
       headers: { cookie, "x-lim-admin": "1" },
       payload,
     }),
+  upload: (query: string, file: Buffer) =>
+    app.inject({
+      method: "POST",
+      url: `/admin/v1/recordings/upload?${query}`,
+      headers: { cookie, "x-lim-admin": "1", "content-type": "application/octet-stream" },
+      payload: file,
+    }),
 });
 async function user(
   email: string,
@@ -262,6 +269,54 @@ describe("recordings in the admin API", () => {
     ).toBe(422);
     expect((await staff.put("/platforms/PRVB/sftp", { mode: "none" })).statusCode).toBe(200);
     expect((await provider.get("/platforms/PRVB/sftp")).statusCode).toBe(403);
+  });
+});
+
+describe("uploading recordings in the portal", () => {
+  it("lets a provider upload for its own source only, with the same checks as SFTP", async () => {
+    const wav = makeTestWav(0.4, 611);
+    const ok = await provider.upload("filename=PORTAL-REF-1.wav", wav);
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({ file: "PORTAL-REF-1.wav", result: "not_matched" });
+    // The same bytes again: recognised as already received.
+    expect((await provider.upload("filename=PORTAL-REF-1-again.wav", wav)).json()).toMatchObject({
+      result: "duplicate",
+    });
+    // Not audio: rejected with the reason.
+    const fake = await provider.upload("filename=FAKE.wav", Buffer.from("not audio at all"));
+    expect(fake.statusCode).toBe(422);
+    expect(fake.json()).toMatchObject({ result: "rejected" });
+    // A path in the name is reduced to the file name.
+    expect(
+      (await provider.upload("filename=..%2F..%2Fescape.wav", makeTestWav(0.3, 612))).json(),
+    ).toMatchObject({ file: "escape.wav" });
+    // Another source's code is refused, an empty body too.
+    expect((await provider.upload("filename=X.wav&platform=PRVA", wav)).statusCode).toBe(404);
+    expect((await provider.upload("filename=EMPTY.wav", Buffer.alloc(0))).statusCode).toBe(422);
+
+    const files = (await provider.get("/recordings?pageSize=50")).json().items as {
+      original_filename: string;
+      platform: string;
+    }[];
+    expect(files.map((f) => f.original_filename)).toEqual(
+      expect.arrayContaining(["PORTAL-REF-1.wav", "FAKE.wav", "escape.wav"]),
+    );
+    expect(new Set(files.map((f) => f.platform))).toEqual(new Set(["PRVB"]));
+    const transfers = (await provider.get("/transfers?pageSize=50")).json().items as {
+      mode: string;
+    }[];
+    expect(transfers.some((x) => x.mode === "portal_upload")).toBe(true);
+  });
+
+  it("requires staff to choose the source, and the upload permission", async () => {
+    expect((await staff.upload("filename=S.wav", makeTestWav(0.3, 613))).statusCode).toBe(422);
+    expect(
+      (await staff.upload("filename=S.wav&platform=PRVA", makeTestWav(0.3, 613))).json(),
+    ).toMatchObject({ result: "not_matched" });
+    const analyst = await user("analyst.up@test.local", ["analyst"]);
+    expect(
+      (await analyst.upload("filename=A.wav&platform=PRVA", makeTestWav(0.3, 614))).statusCode,
+    ).toBe(403);
   });
 });
 

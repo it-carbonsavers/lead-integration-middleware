@@ -19,7 +19,6 @@ import {
 
 interface ScanResult {
   platform: string;
-  mode: string;
   seen: number;
   stored: number;
   rejected: number;
@@ -196,10 +195,8 @@ export default function SystemHealthPage() {
         >
           <ul className="space-y-2">
             {(data.last_recordings_scan?.detail.results ?? []).map((r) => (
-              <li key={r.platform + r.mode} className="flex items-center justify-between text-sm">
-                <span className="text-slate-700">
-                  {r.platform} · {r.mode === "sftp_hosted" ? "uploads to us" : "we collect"}
-                </span>
+              <li key={r.platform} className="flex items-center justify-between text-sm">
+                <span className="text-slate-700">{r.platform} · SFTP upload</span>
                 {r.error ? (
                   <StatusPill label="Problem" tone="red" />
                 ) : (

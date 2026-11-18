@@ -11,6 +11,7 @@ export const PERMISSIONS = [
   "recordings.read",
   "recordings.play",
   "recordings.link",
+  "recordings.upload",
   "platforms.manage",
   "agents.manage",
   "destinations.manage",
@@ -44,6 +45,7 @@ export const ROLES: Record<string, { description: string; permissions: readonly 
       "leads.operate",
       "recordings.read",
       "recordings.link",
+      "recordings.upload",
     ],
   },
   analyst: {
@@ -52,7 +54,13 @@ export const ROLES: Record<string, { description: string; permissions: readonly 
   },
   provider_viewer: {
     description: "Lead provider portal: own leads, submissions and reports only",
-    permissions: ["leads.read", "leads.export", "reports.read", "recordings.read"],
+    permissions: [
+      "leads.read",
+      "leads.export",
+      "reports.read",
+      "recordings.read",
+      "recordings.upload",
+    ],
   },
   org_viewer: {
     description: "Future external portal: own organisation's leads only",
@@ -93,6 +101,7 @@ export type AuditAction =
   | "provider_user.password_reset"
   | "recording.played"
   | "recording.linked"
+  | "recording.uploaded"
   | "recording.purged"
   | "platform.sftp_updated"
   | "transfer.scan_requested"
