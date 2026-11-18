@@ -292,7 +292,7 @@ function LinkToLead({
   );
 }
 
-function FilesTab() {
+function FilesTab({ onChanged }: { onChanged: () => void }) {
   const me = useMe();
   const { params, set } = useQ();
   const status = params.get("status") ?? "";
@@ -384,6 +384,7 @@ function FilesTab() {
                     onDone={() => {
                       setLinking(null);
                       reload();
+                      onChanged(); // the summary cards (waiting, not matched) change too
                     }}
                   />
                 )}
@@ -657,7 +658,7 @@ function View() {
         ]}
       />
       {tab === "leads" && <LeadsTab key={`l${refresh}`} />}
-      {tab === "files" && <FilesTab key={`f${refresh}`} />}
+      {tab === "files" && <FilesTab key={`f${refresh}`} onChanged={() => void summary.reload()} />}
       {tab === "transfers" && <TransfersTab key={`t${refresh}`} />}
     </>
   );
