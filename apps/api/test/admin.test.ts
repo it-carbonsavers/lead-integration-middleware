@@ -443,6 +443,19 @@ describe("management", () => {
       (await admin.post("/platforms", { organisation: "org", code: "NEWP1", display_name: "Dup" }))
         .statusCode,
     ).toBe(409);
+    // Two organisations exist and this admin belongs to none: the organisation must be given.
+    const noOrg = await admin.post("/platforms", { code: "NEWP2", display_name: "No org" });
+    expect(noOrg.statusCode).toBe(422);
+    expect(noOrg.body).toContain("organisation");
+    expect(
+      (
+        await admin.post("/platforms", {
+          organisation: "missing",
+          code: "NEWP2",
+          display_name: "Unknown org",
+        })
+      ).statusCode,
+    ).toBe(422);
     const issued = await admin.post("/platforms/NEWP1/keys", { label: "first" });
     expect(issued.statusCode).toBe(201);
     const token = issued.json().token as string;

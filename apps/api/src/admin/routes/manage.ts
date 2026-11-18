@@ -99,13 +99,31 @@ export async function adminManageRoutes(app: FastifyInstance, opts: AdminRouteOp
     return { items: rows, default_rate_limit: config.RATE_LIMIT_PLATFORM_DEFAULT_PER_MIN };
   });
 
+  /** The organisation a new source belongs to: as given, else the admin's own, else the only one. */
+  async function resolveOrganisation(slug: string | undefined, adminOrgId: string | null) {
+    if (slug) {
+      const org = await db
+        .selectFrom("organisations")
+        .select("id")
+        .where("slug", "=", slug)
+        .executeTakeFirst();
+      if (!org) throw problems.validation([{ path: "organisation", code: "not_found" }]);
+      return org;
+    }
+    if (adminOrgId) return { id: adminOrgId };
+    const orgs = await db.selectFrom("organisations").select("id").limit(2).execute();
+    if (orgs.length !== 1) throw problems.validation([{ path: "organisation", code: "required" }]);
+    return orgs[0]!;
+  }
+
   r.post(
     "/platforms",
     {
       preHandler: platformsPerm,
       schema: {
         body: z.strictObject({
-          organisation: z.string().min(1),
+          /** Organisation slug. Optional: defaults to the admin's organisation, or the only one. */
+          organisation: z.string().min(1).optional(),
           code: z
             .string()
             .regex(/^[A-Z][A-Z0-9_]{2,15}$/, "3-16 chars: A-Z, 0-9, _ (start with a letter)"),
@@ -116,12 +134,7 @@ export async function adminManageRoutes(app: FastifyInstance, opts: AdminRouteOp
       },
     },
     async (req, reply) => {
-      const org = await db
-        .selectFrom("organisations")
-        .select("id")
-        .where("slug", "=", req.body.organisation)
-        .executeTakeFirst();
-      if (!org) throw problems.validation([{ path: "organisation", code: "not_found" }]);
+      const org = await resolveOrganisation(req.body.organisation, req.admin!.organisationId);
       const exists = await db
         .selectFrom("platforms")
         .select("id")
