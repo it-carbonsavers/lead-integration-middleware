@@ -128,18 +128,28 @@ export async function adminRecordingRoutes(app: FastifyInstance, opts: AdminRout
       const rec = await qb.executeTakeFirst();
       if (!rec || !rec.storage_key || !store) throw problems.notFound();
       const audio = await store.get(rec.storage_key);
-      await writeAudit(db, {
-        actorType: "admin",
-        actorId: a.id,
-        actorLabel: a.email,
-        organisationId: rec.organisation_id,
-        action: "recording.played",
-        targetType: "recording",
-        targetId: rec.id,
-        requestId: req.id,
-        ip: req.ip,
-        detail: { file: rec.original_filename },
-      });
+      // A browser audio player often fetches the file twice for one play; log one play per minute.
+      const recentlyLogged = await db
+        .selectFrom("audit_log")
+        .select("id")
+        .where("action", "=", "recording.played")
+        .where("actor_id", "=", a.id)
+        .where("target_id", "=", rec.id)
+        .where("occurred_at", ">", sql<Date>`now() - interval '60 seconds'`)
+        .executeTakeFirst();
+      if (!recentlyLogged)
+        await writeAudit(db, {
+          actorType: "admin",
+          actorId: a.id,
+          actorLabel: a.email,
+          organisationId: rec.organisation_id,
+          action: "recording.played",
+          targetType: "recording",
+          targetId: rec.id,
+          requestId: req.id,
+          ip: req.ip,
+          detail: { file: rec.original_filename },
+        });
       return reply
         .header("content-type", rec.content_type ?? "application/octet-stream")
         .header("content-disposition", "inline")

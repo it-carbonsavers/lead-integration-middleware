@@ -39,8 +39,20 @@ const ACTION_LABEL: Record<string, string> = {
   "lead.pii_reveal": "Showed customer details",
   "lead.export": "Exported leads",
   "lead.retry_requested": "Retried a delivery",
+  "lead.anonymised": "Anonymised a lead",
+  "submission.search": "Searched submissions",
+  "submission.payloads_purged": "Cleared old submission data",
+  "report.viewed": "Viewed reports",
+  "audit.viewed": "Viewed the audit log",
+  "organisation.created": "Added an organisation",
+  "destination.created": "Added a destination",
+  "destination.updated": "Changed a destination",
+  "destination.tested": "Tested a destination",
+  "agent.updated": "Changed an agent",
   "recording.played": "Played a recording",
+  "recording.uploaded": "Uploaded a recording",
   "recording.linked": "Linked a recording to a lead",
+  "recording.purged": "Deleted an expired recording",
   "platform.created": "Added a lead source",
   "platform.updated": "Changed a lead source",
   "platform.suspended": "Suspended a lead source",
@@ -97,8 +109,11 @@ function View() {
           <option value="admin.">Sign-ins</option>
           <option value="lead.">Lead access and exports</option>
           <option value="recording.">Recordings</option>
+          <option value="transfer.">Recording transfers</option>
           <option value="platform.">Lead source changes</option>
+          <option value="provider_user.">Partner logins</option>
           <option value="user.">User changes</option>
+          <option value="destination.">Destinations</option>
         </Select>
       </div>
       <ErrorBanner error={error} onRetry={reload} />
