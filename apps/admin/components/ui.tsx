@@ -6,7 +6,7 @@
  */
 
 import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -778,18 +778,32 @@ export function useLoad<T>(loader: () => Promise<T>, deps: unknown[]) {
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
+  // Callers waiting for a reload to finish (see reload below).
+  const waiting = useRef<(() => void)[]>([]);
   useEffect(() => {
     let alive = true;
     setLoading(true);
     loader()
       .then((d) => alive && (setData(d), setError(null)))
       .catch((e) => alive && setError(e))
-      .finally(() => alive && setLoading(false));
+      .finally(() => {
+        if (!alive) return;
+        setLoading(false);
+        const done = waiting.current;
+        waiting.current = [];
+        done.forEach((resolve) => resolve());
+      });
     return () => {
       alive = false;
     };
   }, [...deps, tick]);
-  return { data, error, loading, reload: () => setTick((x) => x + 1) };
+  /** Fetches again; the returned promise settles once the new data (or error) is in. */
+  const reload = () =>
+    new Promise<void>((resolve) => {
+      waiting.current.push(resolve);
+      setTick((x) => x + 1);
+    });
+  return { data, error, loading, reload };
 }
 
 export function CopyValue({ value }: { value: string }) {

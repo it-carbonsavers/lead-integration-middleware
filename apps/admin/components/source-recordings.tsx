@@ -180,10 +180,12 @@ export function SourceRecordings({ code }: { code: string }) {
       );
       setSecret(r.generated_password ?? null);
       setSyncWarning(r.account_sync_error ?? null);
+      // Keep showing the choices just saved until the page has the saved settings; switching
+      // back early showed the previous mode, and saving again then would have undone the change.
+      await info.reload();
       setF({});
       setMode(null);
       setNotice("Settings saved.");
-      info.reload();
     });
 
   const showStatus = savedMode !== "none" && cfg;
