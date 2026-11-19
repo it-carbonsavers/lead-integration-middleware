@@ -121,7 +121,7 @@ function LeadsTable() {
               ]}
             />
           </div>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]">
             {!isProvider(me) && (
               <Select
                 value={params.get("platform") ?? ""}
@@ -153,7 +153,7 @@ function LeadsTable() {
               onChange={(e) => set({ consent: e.target.value || null })}
               aria-label="Consent recording"
             >
-              <option value="">Any consent status</option>
+              <option value="">All consent</option>
               <option value="awaiting_recording">Awaiting recording</option>
               <option value="overdue">Recording overdue</option>
               <option value="matched">Recording matched</option>
