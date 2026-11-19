@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import {
   BarChart3,
   FileAudio,
@@ -18,7 +18,8 @@ import {
 } from "lucide-react";
 import { api, type Me } from "@/lib/api";
 import { canSeeSettings, isProvider, isStaff, MeContext, ROLE_LABEL } from "@/lib/me";
-import { cx, Skeleton, StatCardsSkeleton } from "@/components/ui";
+import { cx, Skeleton } from "@/components/ui";
+import { cacheMe, clearCachedMe, readCachedMe } from "@/lib/session-cache";
 import { BrandLabel, Logo } from "@/components/brand";
 
 interface NavItem {
@@ -101,10 +102,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const pathname = usePathname();
 
-  useEffect(() => {
+  // Draw from the user remembered for this tab before the first paint (one loading state on
+  // refresh, the page's own), then confirm with the server and refresh the remembered copy.
+  useLayoutEffect(() => {
+    const cached = readCachedMe();
+    if (cached) setMe(cached);
     api
       .get<Me>("/auth/me")
-      .then(setMe)
+      .then((m) => {
+        cacheMe(m);
+        setMe(m);
+      })
       .catch(() => {});
   }, []);
 
@@ -127,11 +135,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </aside>
         <div className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-10">
+          {/* Only the page title, which every page has; the page's own skeleton follows it. */}
           <Skeleton className="mb-2 h-8 w-48" />
           <Skeleton className="mb-6 h-4 w-80 max-w-full" />
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCardsSkeleton />
-          </div>
         </div>
       </div>
     );
@@ -142,6 +148,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const denied = section !== undefined && !section.show(me) && !pathname.startsWith("/account");
 
   async function signOut() {
+    clearCachedMe();
     await api.post("/auth/logout").catch(() => {});
     window.location.href = "/login";
   }

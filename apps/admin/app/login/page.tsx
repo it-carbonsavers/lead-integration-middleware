@@ -2,7 +2,8 @@
 
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, type Me } from "@/lib/api";
+import { cacheMe, clearCachedMe } from "@/lib/session-cache";
 import { Button, Field, Input } from "@/components/ui";
 import { Logo } from "@/components/brand";
 
@@ -18,7 +19,13 @@ function LoginForm() {
     setBusy(true);
     setError(null);
     try {
+      clearCachedMe();
       await api.post("/auth/login", { email, password });
+      // Remember who signed in, so the first page draws straight away (see lib/session-cache).
+      await api
+        .get<Me>("/auth/me")
+        .then(cacheMe)
+        .catch(() => {});
       const next = params.get("next");
       window.location.href = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
     } catch (err) {
