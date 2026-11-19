@@ -50,11 +50,14 @@ export default function UsersPage() {
   const [form, setForm] = useState({ email: "", name: "", role: "operator" });
   const [secret, setSecret] = useState<{ email: string; password: string } | null>(null);
   const [actionError, setActionError] = useState<unknown>(null);
+  const [saving, setSaving] = useState(false);
+  // Row whose role is being changed: its select waits until the change is saved.
+  const [roleSaving, setRoleSaving] = useState<string | null>(null);
   const act = async (fn: () => Promise<unknown>) => {
     setActionError(null);
     try {
       await fn();
-      reload();
+      await reload(); // buttons stay busy until the table shows the change
     } catch (e) {
       setActionError(e);
     }
@@ -83,10 +86,13 @@ export default function UsersPage() {
           </Button>
         }
       >
-        {loading && !data ? (
-          <TableSkeleton rows={4} />
+        {!data ? (
+          error ? null : (
+            <TableSkeleton cols={5} rows={4} />
+          )
         ) : (
           <Table
+            loading={loading}
             head={
               <tr>
                 <Th>Person</Th>
@@ -113,10 +119,14 @@ export default function UsersPage() {
                     <Select
                       className="w-44 py-1.5"
                       value={u.roles[0] ?? ""}
-                      disabled={self}
-                      onChange={(e) =>
-                        act(() => api.patch(`/users/${u.id}`, { roles: [e.target.value] }))
-                      }
+                      disabled={self || roleSaving === u.id}
+                      onChange={(e) => {
+                        const role = e.target.value;
+                        setRoleSaving(u.id);
+                        void act(() => api.patch(`/users/${u.id}`, { roles: [role] })).finally(() =>
+                          setRoleSaving(null),
+                        );
+                      }}
                     >
                       {Object.keys(ROLE_HELP).map((r) => (
                         <option key={r} value={r}>
@@ -221,11 +231,13 @@ export default function UsersPage() {
       )}
 
       {adding && (
-        <Modal title="Add a team member" onClose={() => setAdding(false)}>
+        <Modal title="Add a team member" onClose={() => setAdding(false)} busy={saving}>
           <form
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
+              if (saving) return;
+              setSaving(true);
               void act(async () => {
                 const r = await api.post<{ email: string; temporary_password: string }>("/users", {
                   email: form.email,
@@ -235,7 +247,7 @@ export default function UsersPage() {
                 setSecret({ email: r.email, password: r.temporary_password });
                 setAdding(false);
                 setForm({ email: "", name: "", role: form.role });
-              });
+              }).finally(() => setSaving(false));
             }}
           >
             <Field label="Name">
@@ -266,10 +278,17 @@ export default function UsersPage() {
               </Select>
             </Field>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setAdding(false)}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setAdding(false)}
+                disabled={saving}
+              >
                 Cancel
               </Button>
-              <Button type="submit">Add person</Button>
+              <Button type="submit" loading={saving}>
+                Add person
+              </Button>
             </div>
           </form>
         </Modal>

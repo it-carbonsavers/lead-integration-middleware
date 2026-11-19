@@ -6,10 +6,10 @@ import { api } from "@/lib/api";
 import {
   Button,
   Card,
+  CardSkeleton,
   ErrorBanner,
   KeyValue,
   Notice,
-  Skeleton,
   StatusPill,
   useLoad,
 } from "@/components/ui";
@@ -25,13 +25,19 @@ interface Destination {
 }
 
 export default function DestinationsPage() {
-  const { data, error, loading, reload } = useLoad(
+  const { data, error, loading, refreshing, reload } = useLoad(
     () => api.get<{ items: Destination[]; hubspot_enabled: boolean }>("/destinations"),
     [],
   );
   const [result, setResult] = useState<Record<string, { ok: boolean; detail: string }>>({});
   const [actionError, setActionError] = useState<unknown>(null);
-  if (loading && !data) return <Skeleton className="h-64 rounded-2xl" />;
+  if (loading && !data)
+    return (
+      <div className="space-y-6">
+        <CardSkeleton />
+        <CardSkeleton />
+      </div>
+    );
   return (
     <div className="space-y-6">
       <ErrorBanner error={error ?? actionError} onRetry={reload} />
@@ -44,6 +50,7 @@ export default function DestinationsPage() {
       {data?.items.map((d) => (
         <Card
           key={d.id}
+          loading={refreshing}
           title={
             <span className="flex items-center gap-2">
               {d.name} {d.is_default && <StatusPill label="Standard destination" tone="green" />}
@@ -62,7 +69,10 @@ export default function DestinationsPage() {
                 icon={Wifi}
                 onClick={async () => {
                   try {
-                    setResult({ ...result, [d.id]: await api.post(`/destinations/${d.id}/test`) });
+                    const r = await api.post<{ ok: boolean; detail: string }>(
+                      `/destinations/${d.id}/test`,
+                    );
+                    setResult((prev) => ({ ...prev, [d.id]: r }));
                   } catch (e) {
                     setActionError(e);
                   }
@@ -78,7 +88,7 @@ export default function DestinationsPage() {
                       return;
                     try {
                       await api.post(`/destinations/${d.id}/default`);
-                      reload();
+                      await reload();
                     } catch (e) {
                       setActionError(e);
                     }

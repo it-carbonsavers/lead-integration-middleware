@@ -69,6 +69,7 @@ export function Card({
   children,
   className,
   padded = true,
+  loading,
 }: {
   title?: ReactNode;
   description?: ReactNode;
@@ -76,9 +77,18 @@ export function Card({
   children: ReactNode;
   className?: string;
   padded?: boolean;
+  /** Data in the card is being refreshed: shows a thin progress bar along the top edge. */
+  loading?: boolean;
 }) {
   return (
-    <section className={cx("rounded-2xl border border-slate-200 bg-white shadow-sm", className)}>
+    <section
+      aria-busy={loading || undefined}
+      className={cx(
+        "relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm",
+        className,
+      )}
+    >
+      {loading && <LoadingBar />}
       {(title || actions) && (
         <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div>
@@ -100,6 +110,7 @@ export function StatCard({
   icon: Icon,
   tone = "slate",
   href,
+  loading,
 }: {
   label: string;
   value: ReactNode;
@@ -107,6 +118,8 @@ export function StatCard({
   icon?: LucideIcon;
   tone?: "slate" | "emerald" | "amber" | "red" | "sky";
   href?: string;
+  /** Value is being refreshed: dims the number so stale figures are not read as current. */
+  loading?: boolean;
 }) {
   const tones = {
     slate: "bg-slate-100 text-slate-600",
@@ -130,7 +143,14 @@ export function StatCard({
           </span>
         )}
       </div>
-      <div className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">{value}</div>
+      <div
+        className={cx(
+          "mt-2 text-3xl font-semibold tracking-tight text-slate-900 transition-opacity",
+          loading && "opacity-40",
+        )}
+      >
+        {value}
+      </div>
       {hint && <div className="mt-1 text-xs text-slate-500">{hint}</div>}
     </div>
   );
@@ -159,21 +179,9 @@ export function Button({
   icon?: LucideIcon;
   loading?: boolean;
 }) {
-  // An async onClick (saving, issuing a key, revoking...) shows a spinner and blocks further
-  // clicks until it finishes, so a slow request cannot be submitted twice.
-  const [pending, setPending] = useState(false);
-  const busy = Boolean(loading) || pending;
   const { onClick, ...rest } = props;
-  const handleClick = onClick
-    ? (e: React.MouseEvent<HTMLButtonElement>) => {
-        if (pending) return;
-        const result = onClick(e) as unknown;
-        if (result instanceof Promise) {
-          setPending(true);
-          void result.finally(() => setPending(false));
-        }
-      }
-    : undefined;
+  const [pending, handleClick] = usePendingClick(onClick);
+  const busy = Boolean(loading) || pending;
   return (
     <button
       {...rest}
@@ -196,6 +204,75 @@ export function Button({
       ) : Icon ? (
         <Icon className="h-4 w-4" />
       ) : null}
+      {children}
+    </button>
+  );
+}
+
+/**
+ * An async onClick (saving, issuing a key, revoking...) marks the control as busy until it
+ * finishes, and further clicks are ignored meanwhile, so a slow request cannot be sent twice.
+ */
+function usePendingClick(
+  onClick: React.MouseEventHandler<HTMLButtonElement> | undefined,
+): [boolean, React.MouseEventHandler<HTMLButtonElement> | undefined] {
+  const [pending, setPending] = useState(false);
+  const busyRef = useRef(false);
+  const alive = useRef(true);
+  useEffect(
+    () => () => {
+      alive.current = false;
+    },
+    [],
+  );
+  if (!onClick) return [pending, undefined];
+  return [
+    pending,
+    (e) => {
+      if (busyRef.current) return;
+      const result = onClick(e) as unknown;
+      if (result instanceof Promise) {
+        busyRef.current = true;
+        setPending(true);
+        void result.finally(() => {
+          busyRef.current = false;
+          if (alive.current) setPending(false);
+        });
+      }
+    },
+  ];
+}
+
+/** Link-style action inside tables and lists (Play, Retry, Link...), with the same busy state. */
+export function TextButton({
+  children,
+  className,
+  onClick,
+  disabled,
+  tone = "brand",
+}: {
+  children: ReactNode;
+  className?: string;
+  onClick?: React.MouseEventHandler<HTMLButtonElement>;
+  disabled?: boolean;
+  tone?: "brand" | "danger" | "muted";
+}) {
+  const [pending, handleClick] = usePendingClick(onClick);
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={disabled || pending}
+      aria-busy={pending || undefined}
+      className={cx(
+        "inline-flex items-center gap-1 text-xs font-medium hover:underline disabled:cursor-not-allowed disabled:opacity-60 disabled:no-underline",
+        tone === "brand" && "text-emerald-700",
+        tone === "danger" && "text-red-600",
+        tone === "muted" && "text-slate-500 hover:text-slate-800",
+        className,
+      )}
+    >
+      {pending && <Loader2 className="h-3 w-3 animate-spin" />}
       {children}
     </button>
   );
@@ -398,15 +475,44 @@ export function StatusPill({
 
 // --- Data display ---------------------------------------------------------------------
 
-export function Table({ head, children }: { head: ReactNode; children: ReactNode }) {
+export function Table({
+  head,
+  children,
+  loading,
+}: {
+  head: ReactNode;
+  children: ReactNode;
+  /**
+   * New rows are being fetched (filter, page or refresh). The current rows stay in place
+   * (no layout jump) but are dimmed under a progress bar and a "Loading" spinner.
+   */
+  loading?: boolean;
+}) {
   return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full text-sm">
-        <thead className="border-b border-slate-100 bg-slate-50/60 text-left text-xs font-medium text-slate-500">
-          {head}
-        </thead>
-        <tbody className="divide-y divide-slate-100">{children}</tbody>
-      </table>
+    <div className="relative" aria-busy={loading || undefined}>
+      {loading && <LoadingBar />}
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="border-b border-slate-100 bg-slate-50/60 text-left text-xs font-medium text-slate-500">
+            {head}
+          </thead>
+          <tbody
+            className={cx(
+              "divide-y divide-slate-100 transition-opacity",
+              loading && "pointer-events-none opacity-50",
+            )}
+          >
+            {children}
+          </tbody>
+        </table>
+      </div>
+      {loading && (
+        <div className="pointer-events-none absolute inset-x-0 top-14 flex justify-center">
+          <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm">
+            <Spinner /> Loading…
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -422,11 +528,14 @@ export function Pagination({
   pageSize,
   total,
   onPage,
+  loading,
 }: {
   page: number;
   pageSize: number;
   total: number;
   onPage: (p: number) => void;
+  /** A page is loading: the buttons wait so clicks do not pile up. */
+  loading?: boolean;
 }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
   if (total === 0) return null;
@@ -441,7 +550,7 @@ export function Pagination({
           variant="secondary"
           size="sm"
           icon={ChevronLeft}
-          disabled={page <= 1}
+          disabled={page <= 1 || loading}
           onClick={() => onPage(page - 1)}
         >
           Previous
@@ -449,7 +558,7 @@ export function Pagination({
         <Button
           variant="secondary"
           size="sm"
-          disabled={page >= pages}
+          disabled={page >= pages || loading}
           onClick={() => onPage(page + 1)}
         >
           Next <ChevronRight className="h-4 w-4" />
@@ -482,17 +591,166 @@ export function EmptyState({
   );
 }
 
-export function Skeleton({ className }: { className?: string }) {
-  return <div className={cx("animate-pulse rounded-md bg-slate-100", className)} />;
+// --- Loading states -------------------------------------------------------------------
+// One family of loading indicators, in brand colours, used everywhere:
+// - first load: a skeleton shaped like the content (no blank screen, no layout jump)
+// - refresh / filter / paging: the content stays, dimmed, under a thin progress bar
+// - actions: the button shows a spinner and is disabled until the request finishes
+
+export function Spinner({ className }: { className?: string }) {
+  return <Loader2 aria-hidden className={cx("h-4 w-4 animate-spin text-emerald-600", className)} />;
 }
 
-export function TableSkeleton({ rows = 6 }: { rows?: number }) {
+/** Thin indeterminate progress bar along the top edge of its (relative) container. */
+export function LoadingBar() {
   return (
-    <div className="space-y-3 p-5" aria-label="Loading">
+    <div
+      role="progressbar"
+      aria-label="Loading"
+      className="absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-emerald-100"
+    >
+      <div className="cs-loading-bar h-full w-1/3 rounded-full bg-emerald-500" />
+    </div>
+  );
+}
+
+/** Small inline "Loading…" text with a spinner, for lists and pickers. */
+export function LoadingText({ children = "Loading…" }: { children?: ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-2 text-sm text-slate-500" role="status">
+      <Spinner /> {children}
+    </span>
+  );
+}
+
+export function Skeleton({ className }: { className?: string }) {
+  return <div aria-hidden className={cx("animate-pulse rounded-md bg-slate-100", className)} />;
+}
+
+/** Table placeholder: header and rows at the real table's height, so nothing jumps on load. */
+export function TableSkeleton({ rows = 6, cols = 4 }: { rows?: number; cols?: number }) {
+  const widths = ["w-3/4", "w-1/2", "w-2/3", "w-1/3", "w-5/12", "w-7/12"];
+  return (
+    <div role="status" aria-label="Loading" className="overflow-hidden">
+      <div className="flex gap-6 border-b border-slate-100 bg-slate-50/60 px-5 py-3">
+        {Array.from({ length: cols }, (_, c) => (
+          <Skeleton key={c} className="h-3 flex-1 bg-slate-200/70" />
+        ))}
+      </div>
+      <div className="divide-y divide-slate-100">
+        {Array.from({ length: rows }, (_, r) => (
+          <div key={r} className="flex items-center gap-6 px-5 py-4">
+            {Array.from({ length: cols }, (_, c) => (
+              <div key={c} className="flex-1">
+                <Skeleton className={cx("h-3.5", widths[(r + c) % widths.length])} />
+                {c === 0 && <Skeleton className="mt-1.5 h-2.5 w-1/3" />}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      <span className="sr-only">Loading…</span>
+    </div>
+  );
+}
+
+/** Placeholder for a StatCard (same size and padding). */
+export function StatCardSkeleton() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading"
+      className="h-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-8 w-8 rounded-lg" />
+      </div>
+      <Skeleton className="mt-3 h-8 w-16" />
+      <Skeleton className="mt-2 h-3 w-28" />
+    </div>
+  );
+}
+
+export function StatCardsSkeleton({ count = 4 }: { count?: number }) {
+  return (
+    <>
+      {Array.from({ length: count }, (_, i) => (
+        <StatCardSkeleton key={i} />
+      ))}
+    </>
+  );
+}
+
+/** Placeholder for a BarList chart. */
+export function ChartSkeleton({ rows = 4 }: { rows?: number }) {
+  const widths = ["w-11/12", "w-2/3", "w-1/2", "w-1/3", "w-1/4"];
+  return (
+    <div role="status" aria-label="Loading" className="space-y-4">
       {Array.from({ length: rows }, (_, i) => (
-        <Skeleton key={i} className="h-9 w-full" />
+        <div key={i}>
+          <div className="mb-1.5 flex justify-between">
+            <Skeleton className="h-3.5 w-40" />
+            <Skeleton className="h-3.5 w-8" />
+          </div>
+          <div className="h-2 rounded-full bg-slate-100">
+            <Skeleton className={cx("h-2 rounded-full bg-slate-200", widths[i % widths.length])} />
+          </div>
+        </div>
       ))}
     </div>
+  );
+}
+
+/** Placeholder for a KeyValue list. */
+export function KeyValueSkeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <div role="status" aria-label="Loading" className="divide-y divide-slate-100">
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="flex justify-between gap-4 py-3">
+          <Skeleton className="h-3.5 w-28" />
+          <Skeleton className={cx("h-3.5", i % 2 ? "w-24" : "w-40")} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Placeholder for a form: label + field rows and a button. */
+export function FormSkeleton({ fields = 3 }: { fields?: number }) {
+  return (
+    <div role="status" aria-label="Loading" className="space-y-4">
+      {Array.from({ length: fields }, (_, i) => (
+        <div key={i}>
+          <Skeleton className="mb-1.5 h-3.5 w-28" />
+          <Skeleton className="h-9 w-full rounded-lg" />
+        </div>
+      ))}
+      <Skeleton className="h-9 w-28 rounded-full" />
+    </div>
+  );
+}
+
+/** Placeholder for a whole Card (title, description and body). */
+export function CardSkeleton({
+  className,
+  children,
+}: {
+  className?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <section
+      role="status"
+      aria-label="Loading"
+      className={cx("rounded-2xl border border-slate-200 bg-white shadow-sm", className)}
+    >
+      <header className="border-b border-slate-100 px-5 py-4">
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="mt-2 h-3 w-64 max-w-full" />
+      </header>
+      <div className="p-5">{children ?? <KeyValueSkeleton />}</div>
+    </section>
   );
 }
 
@@ -569,12 +827,15 @@ export function Modal({
   children,
   onClose,
   wide,
+  busy,
 }: {
   title: string;
   description?: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  /** An operation is running: the dialog cannot be closed until it finishes. */
+  busy?: boolean;
 }) {
   return (
     <div
@@ -595,7 +856,8 @@ export function Modal({
           </div>
           <button
             onClick={onClose}
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            disabled={busy}
+            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="Close"
           >
             <X className="h-5 w-5" />
@@ -804,7 +1066,9 @@ export function useLoad<T>(loader: () => Promise<T>, deps: unknown[]) {
       waiting.current.push(resolve);
       setTick((x) => x + 1);
     });
-  return { data, error, loading, reload };
+  /** True while new data is fetched for content already on screen (filters, paging, refresh). */
+  const refreshing = loading && data !== null;
+  return { data, error, loading, refreshing, reload };
 }
 
 export function CopyValue({ value }: { value: string }) {

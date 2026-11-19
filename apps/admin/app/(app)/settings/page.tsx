@@ -6,11 +6,13 @@ import { api } from "@/lib/api";
 import {
   Button,
   Card,
+  CardSkeleton,
   ErrorBanner,
   fmtDate,
   Skeleton,
   StatusPill,
   Table,
+  TableSkeleton,
   Td,
   Th,
   timeAgo,
@@ -64,10 +66,32 @@ function Service({ name, ok, text }: { name: string; ok: boolean; text: string }
 }
 
 export default function SystemHealthPage() {
-  const { data, error, loading, reload } = useLoad(() => api.get<SystemStatus>("/system"), []);
-  if (error) return <ErrorBanner error={error} onRetry={reload} />;
-  if (loading && !data) return <Skeleton className="h-96 rounded-2xl" />;
-  if (!data) return null;
+  const { data, error, refreshing, reload } = useLoad(
+    () => api.get<SystemStatus>("/system"),
+    [],
+  );
+  if (error && !data) return <ErrorBanner error={error} onRetry={reload} />;
+  if (!data)
+    return (
+      <div className="space-y-6">
+        <CardSkeleton>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 5 }, (_, i) => (
+              <Skeleton key={i} className="h-14 rounded-xl" />
+            ))}
+          </div>
+        </CardSkeleton>
+        <CardSkeleton>
+          <Skeleton className="h-4 w-48" />
+        </CardSkeleton>
+        <div className="grid gap-6 xl:grid-cols-2">
+          <CardSkeleton>
+            <TableSkeleton cols={4} rows={4} />
+          </CardSkeleton>
+          <CardSkeleton />
+        </div>
+      </div>
+    );
   const s = data.services;
   const a = data.attention;
   const issues = [
@@ -95,9 +119,11 @@ export default function SystemHealthPage() {
 
   return (
     <div className="space-y-6">
+      <ErrorBanner error={error} onRetry={reload} />
       <Card
         title="Services"
         description={`Checked ${fmtDate(data.checked_at)}`}
+        loading={refreshing}
         actions={
           <Button size="sm" variant="secondary" icon={RefreshCw} onClick={reload}>
             Refresh
@@ -139,7 +165,7 @@ export default function SystemHealthPage() {
         </div>
       </Card>
 
-      <Card title="Needs attention">
+      <Card title="Needs attention" loading={refreshing}>
         {issues.length === 0 ? (
           <p className="flex items-center gap-2 text-sm text-emerald-700">
             <CheckCircle2 className="h-4 w-4" /> Nothing needs attention.
@@ -166,6 +192,7 @@ export default function SystemHealthPage() {
       <div className="grid gap-6 xl:grid-cols-2">
         <Card title="Background jobs" padded={false}>
           <Table
+            loading={refreshing}
             head={
               <tr>
                 <Th>Job</Th>

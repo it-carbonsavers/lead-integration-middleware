@@ -2,7 +2,15 @@
 
 import { ArrowUpRight } from "lucide-react";
 import { api } from "@/lib/api";
-import { Card, CopyValue, KeyValue, Notice, Skeleton, useLoad } from "@/components/ui";
+import {
+  Card,
+  CardSkeleton,
+  CopyValue,
+  KeyValue,
+  KeyValueSkeleton,
+  Notice,
+  useLoad,
+} from "@/components/ui";
 
 interface Integration {
   api_base_url: string | null;
@@ -13,7 +21,12 @@ interface Integration {
 /** What a lead provider needs, besides their key, to start sending leads. */
 export function ProviderApiDetails({ title = "Details to give the provider" }: { title?: string }) {
   const { data, loading } = useLoad(() => api.get<Integration>("/integration"), []);
-  if (loading && !data) return <Skeleton className="h-40 rounded-2xl" />;
+  if (loading && !data)
+    return (
+      <CardSkeleton>
+        <KeyValueSkeleton rows={4} />
+      </CardSkeleton>
+    );
   const endpoint = data?.lead_endpoint ?? null;
   return (
     <Card

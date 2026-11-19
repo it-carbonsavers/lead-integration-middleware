@@ -1,7 +1,7 @@
 "use client";
 
 import { api } from "@/lib/api";
-import { Select, useLoad } from "@/components/ui";
+import { Select, Spinner, useLoad } from "@/components/ui";
 
 export interface PickableLead {
   lead_ref: string;
@@ -74,18 +74,22 @@ export function LeadPicker({
       </div>
     );
   return (
-    <Select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      disabled={disabled || !leads}
-      className="text-xs"
-    >
-      <option value="">{leads ? emptyLabel : "Loading leads…"}</option>
-      {leads?.map((l) => (
-        <option key={l.lead_ref} value={l.lead_ref}>
-          {leadLabel(l)}
-        </option>
-      ))}
-    </Select>
+    <div className="relative">
+      <Select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled || !leads}
+        className="text-xs"
+        aria-busy={!leads || undefined}
+      >
+        <option value="">{leads ? emptyLabel : "Loading leads…"}</option>
+        {leads?.map((l) => (
+          <option key={l.lead_ref} value={l.lead_ref}>
+            {leadLabel(l)}
+          </option>
+        ))}
+      </Select>
+      {!leads && <Spinner className="absolute right-8 top-1/2 h-3.5 w-3.5 -translate-y-1/2" />}
+    </div>
   );
 }

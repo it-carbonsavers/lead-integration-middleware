@@ -33,7 +33,9 @@ import {
   StatusPill,
   StepDots,
   Table,
+  StatCardsSkeleton,
   TableSkeleton,
+  TextButton,
   Tabs,
   Td,
   Th,
@@ -127,8 +129,9 @@ function SourceFilter() {
       value={params.get("platform") ?? ""}
       onChange={(e) => set({ platform: e.target.value || null })}
       aria-label="Source"
+      disabled={!options.data}
     >
-      <option value="">All sources</option>
+      <option value="">{options.data ? "All sources" : "Loading sources…"}</option>
       {options.data?.sources.map((s) => (
         <option key={s.code} value={s.code}>
           {s.name}
@@ -168,9 +171,11 @@ function LeadsTab() {
         <SourceFilter />
       </div>
       <ErrorBanner error={error} onRetry={reload} />
-      {loading && !data ? (
-        <TableSkeleton />
-      ) : !data?.items.length ? (
+      {!data || (loading && data.items.length === 0) ? (
+        error && !data ? null : (
+          <TableSkeleton cols={5} rows={8} />
+        )
+      ) : !data.items.length ? (
         <EmptyState
           icon={CheckCircle2}
           title={
@@ -184,6 +189,7 @@ function LeadsTab() {
         />
       ) : (
         <Table
+          loading={loading}
           head={
             <tr>
               <Th>Lead</Th>
@@ -240,6 +246,7 @@ function LeadsTab() {
           pageSize={data.pageSize}
           total={data.total}
           onPage={(p) => set({ page: String(p) })}
+          loading={loading}
         />
       )}
     </Card>
@@ -253,7 +260,7 @@ function LinkToLead({
 }: {
   id: string;
   platform: string;
-  onDone: () => void;
+  onDone: () => Promise<void>;
 }) {
   const me = useMe();
   // Providers only ever see their own leads; staff see the recording's source.
@@ -279,7 +286,7 @@ function LinkToLead({
           setError(null);
           try {
             await api.post(`/recordings/${id}/link`, { lead_ref: ref });
-            onDone();
+            await onDone();
           } catch (err) {
             setError((err as Error).message);
           }
@@ -292,7 +299,7 @@ function LinkToLead({
   );
 }
 
-function FilesTab({ onChanged }: { onChanged: () => void }) {
+function FilesTab({ onChanged }: { onChanged: () => Promise<void> }) {
   const me = useMe();
   const { params, set } = useQ();
   const status = params.get("status") ?? "";
@@ -325,9 +332,11 @@ function FilesTab({ onChanged }: { onChanged: () => void }) {
         <SourceFilter />
       </div>
       <ErrorBanner error={error} onRetry={reload} />
-      {loading && !data ? (
-        <TableSkeleton />
-      ) : !data?.items.length ? (
+      {!data || (loading && data.items.length === 0) ? (
+        error && !data ? null : (
+          <TableSkeleton cols={5} rows={8} />
+        )
+      ) : !data.items.length ? (
         <EmptyState
           icon={FileAudio}
           title="No recording files"
@@ -335,6 +344,7 @@ function FilesTab({ onChanged }: { onChanged: () => void }) {
         />
       ) : (
         <Table
+          loading={loading}
           head={
             <tr>
               <Th>File</Th>
@@ -361,30 +371,24 @@ function FilesTab({ onChanged }: { onChanged: () => void }) {
                 <div className="mt-1 flex gap-3">
                   {can(me, "recordings.play") &&
                     (r.status === "matched" || r.status === "unmatched") && (
-                      <button
-                        className="text-xs font-medium text-emerald-700 hover:underline"
-                        onClick={() => setPlaying(playing === r.id ? null : r.id)}
-                      >
+                      <TextButton onClick={() => setPlaying(playing === r.id ? null : r.id)}>
                         {playing === r.id ? "Hide player" : "Play"}
-                      </button>
+                      </TextButton>
                     )}
                   {can(me, "recordings.link") && r.status === "unmatched" && (
-                    <button
-                      className="text-xs font-medium text-emerald-700 hover:underline"
-                      onClick={() => setLinking(linking === r.id ? null : r.id)}
-                    >
-                      Link to a lead
-                    </button>
+                    <TextButton onClick={() => setLinking(linking === r.id ? null : r.id)}>
+                      {linking === r.id ? "Cancel linking" : "Link to a lead"}
+                    </TextButton>
                   )}
                 </div>
                 {linking === r.id && (
                   <LinkToLead
                     id={r.id}
                     platform={r.platform}
-                    onDone={() => {
+                    onDone={async () => {
+                      // the summary cards (waiting, not matched) change too
+                      await Promise.all([reload(), onChanged()]);
                       setLinking(null);
-                      reload();
-                      onChanged(); // the summary cards (waiting, not matched) change too
                     }}
                   />
                 )}
@@ -425,6 +429,7 @@ function FilesTab({ onChanged }: { onChanged: () => void }) {
           pageSize={data.pageSize}
           total={data.total}
           onPage={(p) => set({ page: String(p) })}
+          loading={loading}
         />
       )}
     </Card>
@@ -493,12 +498,15 @@ function TransfersTab() {
           </Notice>
         )}
       </div>
-      {loading && !data ? (
-        <TableSkeleton />
-      ) : !data?.items.length ? (
+      {!data || (loading && data.items.length === 0) ? (
+        error && !data ? null : (
+          <TableSkeleton cols={6} rows={8} />
+        )
+      ) : !data.items.length ? (
         <EmptyState icon={FileAudio} title="No file transfers yet" />
       ) : (
         <Table
+          loading={loading}
           head={
             <tr>
               <Th>File</Th>
@@ -531,8 +539,8 @@ function TransfersTab() {
                   </div>
                 )}
                 {x.status === "failed" && canManage && (
-                  <button
-                    className="mt-1 block text-xs font-medium text-emerald-700 hover:underline"
+                  <TextButton
+                    className="mt-1"
                     onClick={async () => {
                       try {
                         await api.post(`/transfers/${x.id}/retry`);
@@ -544,7 +552,7 @@ function TransfersTab() {
                     }}
                   >
                     Retry
-                  </button>
+                  </TextButton>
                 )}
               </Td>
               <Td>
@@ -569,6 +577,7 @@ function TransfersTab() {
           pageSize={data.pageSize}
           total={data.total}
           onPage={(p) => set({ page: String(p) })}
+          loading={loading}
         />
       )}
     </Card>
@@ -618,36 +627,46 @@ function View() {
         />
       )}
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard
-          label="Waiting for recording"
-          value={s ? s.awaiting + s.overdue : "…"}
-          icon={Clock}
-          tone="amber"
-          href="/consent?view=needs_recording"
-        />
-        <StatCard
-          label="Overdue"
-          value={s?.overdue ?? "…"}
-          icon={AlertTriangle}
-          tone="red"
-          hint="Not received within 48 hours"
-          href="/consent?view=overdue"
-        />
-        <StatCard
-          label="Files not matched"
-          value={s ? s.unmatched + s.rejected : "…"}
-          icon={FileX}
-          tone="amber"
-          hint="Unmatched or rejected files"
-          href="/consent?tab=files&status=unmatched"
-        />
-        <StatCard
-          label="Failed transfers"
-          value={s?.failed_transfers ?? "…"}
-          icon={ServerCrash}
-          tone={s?.failed_transfers ? "red" : "slate"}
-          href="/consent?tab=transfers&status=failed"
-        />
+        {!s ? (
+          <StatCardsSkeleton />
+        ) : (
+          <>
+            <StatCard
+              label="Waiting for recording"
+              value={s.awaiting + s.overdue}
+              icon={Clock}
+              tone="amber"
+              loading={summary.refreshing}
+              href="/consent?view=needs_recording"
+            />
+            <StatCard
+              label="Overdue"
+              value={s.overdue}
+              icon={AlertTriangle}
+              tone="red"
+              hint="Not received within 48 hours"
+              loading={summary.refreshing}
+              href="/consent?view=overdue"
+            />
+            <StatCard
+              label="Files not matched"
+              value={s.unmatched + s.rejected}
+              icon={FileX}
+              tone="amber"
+              hint="Unmatched or rejected files"
+              loading={summary.refreshing}
+              href="/consent?tab=files&status=unmatched"
+            />
+            <StatCard
+              label="Failed transfers"
+              value={s.failed_transfers}
+              icon={ServerCrash}
+              tone={s.failed_transfers ? "red" : "slate"}
+              loading={summary.refreshing}
+              href="/consent?tab=transfers&status=failed"
+            />
+          </>
+        )}
       </div>
       <Tabs
         active={tab}
@@ -658,7 +677,7 @@ function View() {
         ]}
       />
       {tab === "leads" && <LeadsTab key={`l${refresh}`} />}
-      {tab === "files" && <FilesTab key={`f${refresh}`} onChanged={() => void summary.reload()} />}
+      {tab === "files" && <FilesTab key={`f${refresh}`} onChanged={summary.reload} />}
       {tab === "transfers" && <TransfersTab key={`t${refresh}`} />}
     </>
   );

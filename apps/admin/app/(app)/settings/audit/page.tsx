@@ -117,12 +117,15 @@ function View() {
         </Select>
       </div>
       <ErrorBanner error={error} onRetry={reload} />
-      {loading && !data ? (
-        <TableSkeleton />
-      ) : !data?.items.length ? (
+      {!data || (loading && !data.items.length) ? (
+        error && !data ? null : (
+          <TableSkeleton cols={4} rows={10} />
+        )
+      ) : !data.items.length ? (
         <EmptyState icon={ScrollText} title="No matching activity" />
       ) : (
         <Table
+          loading={loading}
           head={
             <tr>
               <Th>When</Th>
@@ -148,6 +151,7 @@ function View() {
           pageSize={data.pageSize}
           total={data.total}
           onPage={(p) => set("page", String(p))}
+          loading={loading}
         />
       )}
     </Card>

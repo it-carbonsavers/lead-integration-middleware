@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { api, type Me } from "@/lib/api";
 import { canSeeSettings, isProvider, isStaff, MeContext, ROLE_LABEL } from "@/lib/me";
-import { cx, Skeleton } from "@/components/ui";
+import { cx, Skeleton, StatCardsSkeleton } from "@/components/ui";
 import { BrandLabel, Logo } from "@/components/brand";
 
 interface NavItem {
@@ -110,16 +110,28 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (!me) {
     return (
-      <div className="flex min-h-screen">
-        <div className="hidden w-64 border-r border-slate-200 bg-white p-5 lg:block">
-          <Skeleton className="mb-8 h-8 w-40" />
-          {Array.from({ length: 6 }, (_, i) => (
-            <Skeleton key={i} className="mb-2 h-8 w-full" />
-          ))}
-        </div>
-        <div className="flex-1 p-8">
-          <Skeleton className="mb-6 h-8 w-56" />
-          <Skeleton className="h-40 w-full" />
+      // Same frame as the signed-in layout (sidebar, logo, page header, cards) so nothing jumps.
+      <div className="flex min-h-screen bg-slate-50" role="status" aria-label="Loading">
+        <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
+          <div className="px-3 pb-4 pt-3">
+            <Logo width={136} priority />
+            <Skeleton className="mx-3 mt-1 h-3 w-28" />
+          </div>
+          <div className="space-y-1 px-3">
+            {Array.from({ length: 6 }, (_, i) => (
+              <div key={i} className="flex items-center gap-3 px-3 py-2">
+                <Skeleton className="h-4 w-4" />
+                <Skeleton className="h-3.5 w-28" />
+              </div>
+            ))}
+          </div>
+        </aside>
+        <div className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-10">
+          <Skeleton className="mb-2 h-8 w-48" />
+          <Skeleton className="mb-6 h-4 w-80 max-w-full" />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCardsSkeleton />
+          </div>
         </div>
       </div>
     );

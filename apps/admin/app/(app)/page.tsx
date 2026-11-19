@@ -9,6 +9,8 @@ import type { Overview } from "@/lib/types";
 import {
   BarList,
   Card,
+  ChartSkeleton,
+  cx,
   EmptyState,
   ErrorBanner,
   PageHeader,
@@ -16,8 +18,10 @@ import {
   Segmented,
   Skeleton,
   StatCard,
+  StatCardsSkeleton,
   StatusPill,
   Table,
+  TableSkeleton,
   Td,
   Th,
   timeAgo,
@@ -33,7 +37,7 @@ const PERIODS = [
 export default function OverviewPage() {
   const me = useMe();
   const [days, setDays] = useState<"7" | "30" | "90">("30");
-  const { data, error, loading, reload } = useLoad(
+  const { data, error, loading, refreshing, reload } = useLoad(
     () => api.get<Overview>(`/overview?days=${days}`),
     [days],
   );
@@ -56,9 +60,11 @@ export default function OverviewPage() {
       <ErrorBanner error={error} onRetry={reload} />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {loading && !t ? (
-          Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-32 rounded-2xl" />)
-        ) : t ? (
+        {!t ? (
+          error ? null : (
+            <StatCardsSkeleton />
+          )
+        ) : (
           <>
             <StatCard
               label="Leads received"
@@ -66,6 +72,7 @@ export default function OverviewPage() {
               icon={Inbox}
               tone="sky"
               hint={`Last ${days} days`}
+              loading={refreshing}
               href={leadsLink()}
             />
             <StatCard
@@ -74,6 +81,7 @@ export default function OverviewPage() {
               icon={CheckCircle2}
               tone="emerald"
               hint={`${pct(t.delivered, t.received)} of leads`}
+              loading={refreshing}
               href={leadsLink("&group=delivered")}
             />
             <StatCard
@@ -82,6 +90,7 @@ export default function OverviewPage() {
               icon={Clock}
               tone="amber"
               hint="Processing or retrying"
+              loading={refreshing}
               href={leadsLink("&group=pending")}
             />
             <StatCard
@@ -90,12 +99,14 @@ export default function OverviewPage() {
               icon={AlertTriangle}
               tone="red"
               hint={t.failed ? "Need attention" : "Nothing to fix"}
+              loading={refreshing}
               href={leadsLink("&group=failed")}
             />
           </>
-        ) : null}
+        )}
       </div>
 
+      {!t && !error && <Skeleton className="mt-4 h-[74px] rounded-2xl" />}
       {t && (
         <Link
           href="/consent"
@@ -113,7 +124,14 @@ export default function OverviewPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-2xl font-semibold text-slate-900">{t.consent_pending}</span>
+            <span
+              className={cx(
+                "text-2xl font-semibold text-slate-900 transition-opacity",
+                refreshing && "opacity-40",
+              )}
+            >
+              {t.consent_pending}
+            </span>
             {t.consent_overdue > 0 && (
               <StatusPill status="overdue" label={`${t.consent_overdue} overdue`} />
             )}
@@ -122,10 +140,10 @@ export default function OverviewPage() {
       )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <Card title="Leads by source" description={`Last ${days} days`}>
-          {loading && !data ? (
-            <Skeleton className="h-40" />
-          ) : data?.by_source.length ? (
+        <Card title="Leads by source" description={`Last ${days} days`} loading={refreshing}>
+          {!data || (loading && !data.by_source.length) ? (
+            <ChartSkeleton />
+          ) : data.by_source.length ? (
             <BarList
               items={data.by_source.map((s) => ({
                 label: `${s.display_name} (${s.code})`,
@@ -142,12 +160,11 @@ export default function OverviewPage() {
         </Card>
 
         <Card title="Leads by agent" description="Top agents in this period" padded={false}>
-          {loading && !data ? (
-            <div className="p-5">
-              <Skeleton className="h-40" />
-            </div>
-          ) : data?.by_agent.length ? (
+          {!data || (loading && !data.by_agent.length) ? (
+            <TableSkeleton cols={4} rows={4} />
+          ) : data.by_agent.length ? (
             <Table
+              loading={loading}
               head={
                 <tr>
                   <Th>Agent</Th>
@@ -190,8 +207,11 @@ export default function OverviewPage() {
           </Link>
         }
       >
-        {data?.recent.length ? (
+        {!data || (loading && !data.recent.length) ? (
+          <TableSkeleton cols={5} rows={5} />
+        ) : data.recent.length ? (
           <Table
+            loading={loading}
             head={
               <tr>
                 <Th>Customer</Th>
@@ -223,10 +243,6 @@ export default function OverviewPage() {
               </tr>
             ))}
           </Table>
-        ) : loading ? (
-          <div className="p-5">
-            <Skeleton className="h-32" />
-          </div>
         ) : (
           <EmptyState
             title="No leads yet"

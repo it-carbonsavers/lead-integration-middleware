@@ -37,6 +37,7 @@ function AddSource({ onClose, onDone }: { onClose: () => void; onDone: (code: st
       title="Add a lead source"
       description="A provider that will send leads through the API."
       onClose={onClose}
+      busy={busy}
     >
       <ErrorBanner error={error} />
       <form
@@ -90,7 +91,7 @@ function AddSource({ onClose, onDone }: { onClose: () => void; onDone: (code: st
           />
         </Field>
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose}>
+          <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button type="submit" loading={busy}>
@@ -121,9 +122,11 @@ export default function SourcesPage() {
       />
       <ErrorBanner error={error} onRetry={reload} />
       <Card padded={false}>
-        {loading && !data ? (
-          <TableSkeleton rows={4} />
-        ) : !data?.items.length ? (
+        {!data || (loading && !data.items.length) ? (
+          error && !data ? null : (
+            <TableSkeleton cols={6} rows={4} />
+          )
+        ) : !data.items.length ? (
           <EmptyState
             icon={Plug}
             title="No lead sources yet"
@@ -131,6 +134,7 @@ export default function SourcesPage() {
           />
         ) : (
           <Table
+            loading={loading}
             head={
               <tr>
                 <Th>Source</Th>

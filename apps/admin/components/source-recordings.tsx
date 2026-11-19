@@ -16,6 +16,7 @@ import { HostKeyFingerprints, type HostKey } from "@/components/sources";
 import {
   Button,
   Card,
+  CardSkeleton,
   CopyValue,
   cx,
   ErrorBanner,
@@ -23,6 +24,7 @@ import {
   fmtDate,
   Input,
   KeyValue,
+  KeyValueSkeleton,
   Notice,
   Segmented,
   Skeleton,
@@ -81,9 +83,11 @@ function MethodCard({
   title,
   text,
   badge,
+  disabled,
 }: {
   active: boolean;
   onClick: () => void;
+  disabled?: boolean;
   icon: typeof Upload;
   title: string;
   text: string;
@@ -93,8 +97,9 @@ function MethodCard({
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={cx(
-        "flex w-full items-start gap-3 rounded-xl border p-4 text-left transition",
+        "flex w-full items-start gap-3 rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60",
         active
           ? "border-emerald-500 bg-emerald-50/50 ring-2 ring-emerald-500/20"
           : "border-slate-200 bg-white hover:border-slate-300",
@@ -134,7 +139,23 @@ export function SourceRecordings({ code }: { code: string }) {
   const [secret, setSecret] = useState<string | null>(null);
   const [syncWarning, setSyncWarning] = useState<string | null>(null);
 
-  if (info.loading && !info.data) return <Skeleton className="h-96 rounded-2xl" />;
+  if (info.loading && !info.data)
+    return (
+      <div className="space-y-6">
+        <CardSkeleton>
+          <div className="grid gap-6 md:grid-cols-2">
+            <KeyValueSkeleton rows={4} />
+            <KeyValueSkeleton rows={3} />
+          </div>
+        </CardSkeleton>
+        <CardSkeleton>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Skeleton className="h-20 rounded-xl" />
+            <Skeleton className="h-20 rounded-xl" />
+          </div>
+        </CardSkeleton>
+      </div>
+    );
   if (!info.data) return <ErrorBanner error={info.error} onRetry={info.reload} />;
   const d = info.data;
   const cfg = d.config;
@@ -220,6 +241,7 @@ export function SourceRecordings({ code }: { code: string }) {
       {showStatus && (
         <Card
           title="Connection status"
+          loading={info.refreshing}
           actions={
             health === "ok" ? (
               <StatusPill label="Working" tone="green" />
@@ -298,10 +320,11 @@ export function SourceRecordings({ code }: { code: string }) {
                   variant="secondary"
                   icon={Wifi}
                   loading={busy === "test"}
+                  disabled={busy !== null}
                   onClick={() =>
                     run("test", async () => {
                       setTest(await api.post<TestResult>(`/platforms/${code}/sftp/test`));
-                      info.reload();
+                      await info.reload();
                     })
                   }
                 >
@@ -311,6 +334,7 @@ export function SourceRecordings({ code }: { code: string }) {
                   variant="secondary"
                   icon={RefreshCw}
                   loading={busy === "scan"}
+                  disabled={busy !== null}
                   onClick={() =>
                     run("scan", async () => {
                       await api.post("/transfers/scan", { platform: code });
@@ -355,6 +379,7 @@ export function SourceRecordings({ code }: { code: string }) {
           <MethodCard
             active={current === "sftp_hosted"}
             onClick={() => setMode("sftp_hosted")}
+            disabled={busy !== null}
             icon={Upload}
             title="Upload to our SFTP server"
             text="We give the provider a private SFTP account on our server."
@@ -362,6 +387,7 @@ export function SourceRecordings({ code }: { code: string }) {
           <MethodCard
             active={current === "none"}
             onClick={() => setMode("none")}
+            disabled={busy !== null}
             icon={Server}
             title="Not set up"
             text="No consent recordings from this source yet."
@@ -414,6 +440,7 @@ export function SourceRecordings({ code }: { code: string }) {
                         size="sm"
                         variant="secondary"
                         loading={busy === "pw"}
+                        disabled={busy !== null}
                         onClick={() =>
                           run("pw", async () => {
                             if (
@@ -490,6 +517,7 @@ export function SourceRecordings({ code }: { code: string }) {
           {(mode !== null || Object.keys(f).length > 0) && (
             <Button
               variant="ghost"
+              disabled={busy !== null}
               onClick={() => {
                 setMode(null);
                 setF({});
@@ -498,7 +526,7 @@ export function SourceRecordings({ code }: { code: string }) {
               Discard changes
             </Button>
           )}
-          <Button loading={busy === "save"} onClick={save}>
+          <Button loading={busy === "save"} disabled={busy !== null} onClick={save}>
             Save
           </Button>
         </div>

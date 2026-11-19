@@ -100,6 +100,7 @@ export function UploadRecordings({ onClose, onDone }: { onClose: () => void; onD
       title="Upload consent recordings"
       description="Each file is checked, stored encrypted and matched to its lead automatically."
       onClose={busy ? () => {} : onClose}
+      busy={busy}
     >
       <div className="space-y-4">
         {!provider && (
@@ -110,9 +111,9 @@ export function UploadRecordings({ onClose, onDone }: { onClose: () => void; onD
                 setPlatform(e.target.value);
                 setLeadFor({});
               }}
-              disabled={busy}
+              disabled={busy || !options.data}
             >
-              <option value="">Choose a source…</option>
+              <option value="">{options.data ? "Choose a source…" : "Loading sources…"}</option>
               {options.data?.sources
                 .filter((s) => s.status === "active")
                 .map((s) => (

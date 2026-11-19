@@ -8,7 +8,18 @@ import {
   type HostKey,
   type Source,
 } from "@/components/sources";
-import { Card, KeyValue, Notice, Skeleton, Table, Td, Th, timeAgo, useLoad } from "@/components/ui";
+import {
+  Card,
+  KeyValue,
+  KeyValueSkeleton,
+  Notice,
+  Table,
+  TableSkeleton,
+  Td,
+  Th,
+  timeAgo,
+  useLoad,
+} from "@/components/ui";
 
 export default function SftpSettingsPage() {
   const sources = useLoad(() => api.get<{ items: Source[] }>("/platforms"), []);
@@ -74,8 +85,8 @@ export default function SftpSettingsPage() {
               title="Server fingerprints (give these to providers; their SFTP client shows one of them)"
             />
           </div>
-        ) : sources.loading ? (
-          <Skeleton className="h-24" />
+        ) : sources.loading || server.loading ? (
+          <KeyValueSkeleton rows={5} />
         ) : (
           <p className="text-sm text-slate-500">No source is set up for recordings yet.</p>
         )}
@@ -85,35 +96,40 @@ export default function SftpSettingsPage() {
         description="Open a source to change its login, issue a new password or test the connection."
         padded={false}
       >
-        <Table
-          head={
-            <tr>
-              <Th>Source</Th>
-              <Th>Status</Th>
-              <Th className="text-right">Last successful connection</Th>
-            </tr>
-          }
-        >
-          {sources.data?.items.map((s) => (
-            <tr key={s.code} className="hover:bg-slate-50">
-              <Td>
-                <Link
-                  className="font-medium text-slate-900 hover:underline"
-                  href={`/sources/${s.code}?tab=recordings`}
-                >
-                  {s.display_name}
-                </Link>
-                <div className="text-xs text-slate-500">{s.code}</div>
-              </Td>
-              <Td>
-                <RecordingHealth s={s} />
-              </Td>
-              <Td className="text-right text-slate-500">
-                {s.recording_ingest_mode === "none" ? "—" : timeAgo(s.sftp_last_success_at)}
-              </Td>
-            </tr>
-          ))}
-        </Table>
+        {!sources.data ? (
+          <TableSkeleton cols={3} rows={4} />
+        ) : (
+          <Table
+            loading={sources.loading}
+            head={
+              <tr>
+                <Th>Source</Th>
+                <Th>Status</Th>
+                <Th className="text-right">Last successful connection</Th>
+              </tr>
+            }
+          >
+            {sources.data.items.map((s) => (
+              <tr key={s.code} className="hover:bg-slate-50">
+                <Td>
+                  <Link
+                    className="font-medium text-slate-900 hover:underline"
+                    href={`/sources/${s.code}?tab=recordings`}
+                  >
+                    {s.display_name}
+                  </Link>
+                  <div className="text-xs text-slate-500">{s.code}</div>
+                </Td>
+                <Td>
+                  <RecordingHealth s={s} />
+                </Td>
+                <Td className="text-right text-slate-500">
+                  {s.recording_ingest_mode === "none" ? "—" : timeAgo(s.sftp_last_success_at)}
+                </Td>
+              </tr>
+            ))}
+          </Table>
+        )}
       </Card>
     </div>
   );

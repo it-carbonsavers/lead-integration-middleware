@@ -10,15 +10,17 @@ import type { Options } from "@/lib/types";
 import {
   BarList,
   Card,
+  ChartSkeleton,
   EmptyState,
   ErrorBanner,
   Input,
   PageHeader,
   Segmented,
   Select,
-  Skeleton,
   StatCard,
+  StatCardsSkeleton,
   Table,
+  TableSkeleton,
   Td,
   Th,
   useLoad,
@@ -146,8 +148,9 @@ function View() {
             value={platform}
             onChange={(e) => set({ platform: e.target.value || null })}
             aria-label="Source"
+            disabled={!options.data}
           >
-            <option value="">All sources</option>
+            <option value="">{options.data ? "All sources" : "Loading sources…"}</option>
             {options.data?.sources.map((s) => (
               <option key={s.code} value={s.code}>
                 {s.name}
@@ -161,12 +164,15 @@ function View() {
       <h2 className="mb-3 text-sm font-semibold text-slate-900">Submissions and delivery</h2>
       <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {!t ? (
-          Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-32 rounded-2xl" />)
+          summary.error ? null : (
+            <StatCardsSkeleton />
+          )
         ) : (
           <>
             <StatCard
               label="Leads received"
               value={t.leads.toLocaleString()}
+              loading={summary.refreshing}
               href={`/leads?${leadsQs}`}
               hint={`${t.rejected_submissions} rejected submissions`}
             />
@@ -175,6 +181,7 @@ function View() {
               value={p(t.delivery_rate_pct)}
               hint={`${t.delivered.toLocaleString()} leads`}
               tone="emerald"
+              loading={summary.refreshing}
               href={`/leads?${leadsQs}&group=delivered`}
             />
             <StatCard
@@ -182,12 +189,14 @@ function View() {
               value={t.failed.toLocaleString()}
               hint={`${t.pending} still pending`}
               tone={t.failed ? "red" : "slate"}
+              loading={summary.refreshing}
               href={`/leads?${leadsQs}&group=failed`}
             />
             <StatCard
               label="Average time to deliver"
               value={t.avg_delivery_seconds === null ? "—" : `${t.avg_delivery_seconds}s`}
               hint={`${t.possible_duplicates} possible duplicates`}
+              loading={summary.refreshing}
             />
           </>
         )}
@@ -209,14 +218,15 @@ function View() {
             />
           }
         >
-          {!sources.data ? (
-            <div className="p-5">
-              <Skeleton className="h-40" />
-            </div>
+          {!sources.data || (sources.loading && sources.data.items.length === 0) ? (
+            sources.error && !sources.data ? null : (
+              <TableSkeleton cols={5} rows={4} />
+            )
           ) : sources.data.items.length === 0 ? (
             <EmptyState icon={BarChart3} title="No leads in this period" />
           ) : (
             <Table
+              loading={sources.loading}
               head={
                 <tr>
                   <Th>Source</Th>
@@ -263,9 +273,15 @@ function View() {
           )}
         </Card>
 
-        <Card title="Consent recordings" description="For leads in this period">
+        <Card
+          title="Consent recordings"
+          description="For leads in this period"
+          loading={summary.refreshing}
+        >
           {!t ? (
-            <Skeleton className="h-40" />
+            summary.error ? null : (
+              <ChartSkeleton />
+            )
           ) : (
             <BarList
               items={[
@@ -296,14 +312,15 @@ function View() {
       </div>
 
       <Card title="Agent performance" padded={false}>
-        {!agents.data ? (
-          <div className="p-5">
-            <Skeleton className="h-40" />
-          </div>
+        {!agents.data || (agents.loading && agents.data.items.length === 0) ? (
+          agents.error && !agents.data ? null : (
+            <TableSkeleton cols={6} rows={5} />
+          )
         ) : agents.data.items.length === 0 ? (
           <EmptyState icon={Users} title="No agent activity in this period" />
         ) : (
           <Table
+            loading={agents.loading}
             head={
               <tr>
                 <Th>Agent</Th>

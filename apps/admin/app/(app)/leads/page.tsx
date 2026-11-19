@@ -127,8 +127,9 @@ function LeadsTable() {
                 value={params.get("platform") ?? ""}
                 onChange={(e) => set({ platform: e.target.value || null, agent: null })}
                 aria-label="Source"
+                disabled={!options.data}
               >
-                <option value="">All sources</option>
+                <option value="">{options.data ? "All sources" : "Loading sources…"}</option>
                 {options.data?.sources.map((s) => (
                   <option key={s.code} value={s.code}>
                     {s.name}
@@ -140,8 +141,9 @@ function LeadsTable() {
               value={params.get("agent") ?? ""}
               onChange={(e) => set({ agent: e.target.value || null })}
               aria-label="Agent"
+              disabled={!options.data}
             >
-              <option value="">All agents</option>
+              <option value="">{options.data ? "All agents" : "Loading agents…"}</option>
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name ? `${a.name} (${a.external_agent_id})` : a.external_agent_id}
@@ -190,9 +192,11 @@ function LeadsTable() {
           )}
         </div>
         <ErrorBanner error={error} onRetry={reload} />
-        {loading && !data ? (
-          <TableSkeleton />
-        ) : data && data.items.length === 0 ? (
+        {!data || (loading && data.items.length === 0) ? (
+          error && !data ? null : (
+            <TableSkeleton cols={6} rows={8} />
+          )
+        ) : data.items.length === 0 ? (
           active.length ? (
             <EmptyState
               icon={SearchX}
@@ -208,6 +212,7 @@ function LeadsTable() {
           )
         ) : (
           <Table
+            loading={loading}
             head={
               <tr>
                 <Th>Customer</Th>
@@ -219,7 +224,7 @@ function LeadsTable() {
               </tr>
             }
           >
-            {data?.items.map((l) => (
+            {data.items.map((l) => (
               <tr
                 key={l.lead_ref}
                 className="group cursor-pointer hover:bg-slate-50"
@@ -261,13 +266,18 @@ function LeadsTable() {
             pageSize={data.pageSize}
             total={data.total}
             onPage={(p) => set({ page: String(p) })}
+            loading={loading}
           />
         )}
       </Card>
       {can(me, "leads.export") && data && data.total > 0 && (
         <div className="mt-3 flex justify-end">
-          <a href={`/admin-api/leads/export.csv?${exportQs.toString()}`}>
-            <Button variant="secondary" icon={Download} size="sm">
+          <a
+            href={`/admin-api/leads/export.csv?${exportQs.toString()}`}
+            aria-disabled={loading || undefined}
+            className={loading ? "pointer-events-none" : undefined}
+          >
+            <Button variant="secondary" icon={Download} size="sm" disabled={loading}>
               Export {data.total.toLocaleString()} leads (CSV)
             </Button>
           </a>
@@ -307,15 +317,18 @@ function SubmissionsTable() {
         />
       </div>
       <ErrorBanner error={error} onRetry={reload} />
-      {loading && !data ? (
-        <TableSkeleton />
-      ) : data?.items.length === 0 ? (
+      {!data || (loading && data.items.length === 0) ? (
+        error && !data ? null : (
+          <TableSkeleton cols={5} rows={8} />
+        )
+      ) : data.items.length === 0 ? (
         <EmptyState
           title={outcome === "rejected" ? "No rejected submissions" : "Nothing here"}
           text="Good news: sources are sending valid leads."
         />
       ) : (
         <Table
+          loading={loading}
           head={
             <tr>
               <Th>Received</Th>
@@ -326,7 +339,7 @@ function SubmissionsTable() {
             </tr>
           }
         >
-          {data?.items.map((s) => (
+          {data.items.map((s) => (
             <tr key={s.id}>
               <Td className="whitespace-nowrap text-slate-500">{fmtDate(s.received_at)}</Td>
               <Td>{s.platform}</Td>
@@ -361,6 +374,7 @@ function SubmissionsTable() {
           pageSize={data.pageSize}
           total={data.total}
           onPage={(p) => set({ page: String(p) })}
+          loading={loading}
         />
       )}
     </Card>
