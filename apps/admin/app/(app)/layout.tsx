@@ -11,7 +11,6 @@ import {
   Menu,
   Plug,
   Settings,
-  ShieldCheck,
   UserCircle,
   Users,
   X,
@@ -20,6 +19,7 @@ import {
 import { api, type Me } from "@/lib/api";
 import { canSeeSettings, isProvider, isStaff, MeContext, ROLE_LABEL } from "@/lib/me";
 import { cx, Skeleton } from "@/components/ui";
+import { BrandLabel, Logo } from "@/components/brand";
 
 interface NavItem {
   href: string;
@@ -135,16 +135,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   const brand = (
-    <div className="flex items-center gap-2.5 px-5 py-5">
-      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-600 text-white">
-        <ShieldCheck className="h-5 w-5" />
-      </div>
-      <div>
-        <div className="text-sm font-semibold leading-tight text-slate-900">Lead Integration</div>
-        <div className="text-xs text-slate-500">
-          {isProvider(me) ? `Partner portal · ${me.platform}` : "Admin"}
-        </div>
-      </div>
+    <div className="px-3 pb-4 pt-3">
+      <Link href="/" aria-label="Carbon Savers home">
+        <Logo width={136} priority />
+      </Link>
+      <BrandLabel className="mt-1 px-3">
+        {isProvider(me) ? `Partner portal · ${me.platform}` : "Lead Integration"}
+      </BrandLabel>
     </div>
   );
 
@@ -216,6 +213,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             >
               <Menu className="h-5 w-5" />
             </button>
+            <Logo width={96} />
             <span className="text-sm font-semibold text-slate-900">Lead Integration</span>
           </header>
           {!isProvider(me) && !me.hubspot_enabled && (

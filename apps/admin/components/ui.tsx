@@ -2,7 +2,8 @@
 
 /**
  * Design system for the admin dashboard: one place for spacing, colours, typography and states.
- * Neutral slate surfaces, a single emerald accent, rounded cards, subtle borders.
+ * Carbon Savers brand: Slate Gray text and pill buttons, Mantis green accent, Outfit type.
+ * "slate" and "emerald" are remapped to the brand colours in app/globals.css.
  */
 
 import Link from "next/link";
@@ -180,8 +181,8 @@ export function Button({
       aria-busy={busy || undefined}
       disabled={props.disabled || busy}
       className={cx(
-        "inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-50",
-        size === "sm" ? "px-2.5 py-1.5 text-xs" : "px-3.5 py-2 text-sm",
+        "inline-flex items-center justify-center gap-1.5 rounded-full font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-50",
+        size === "sm" ? "px-3 py-1.5 text-xs" : "px-4 py-2 text-sm",
         variant === "primary" && "bg-slate-900 text-white hover:bg-slate-800",
         variant === "secondary" &&
           "border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50",
