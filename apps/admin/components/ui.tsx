@@ -279,17 +279,31 @@ export function TextButton({
 }
 
 const inputCls =
-  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:bg-slate-50";
+  "rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:bg-slate-50";
+
+/**
+ * Fields are full width unless the caller sets a width class (w-44, w-56...). Both used to be
+ * applied and the full width won, so a dropdown in a table column could shrink to nothing.
+ */
+const fieldWidth = (className?: string) =>
+  className && /(^|\s)w-/.test(className) ? undefined : "w-full";
 
 export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className={cx(inputCls, props.className)} />;
+  return (
+    <input {...props} className={cx(inputCls, fieldWidth(props.className), props.className)} />
+  );
 }
 export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea {...props} className={cx(inputCls, "font-mono text-xs", props.className)} />;
+  return (
+    <textarea {...props} className={cx(inputCls, "w-full font-mono text-xs", props.className)} />
+  );
 }
 export function Select({ children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select {...props} className={cx(inputCls, "pr-8", props.className)}>
+    <select
+      {...props}
+      className={cx(inputCls, fieldWidth(props.className), "pr-8", props.className)}
+    >
       {children}
     </select>
   );
@@ -308,7 +322,7 @@ export function SearchInput({
     <div className="relative">
       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
       <input
-        className={cx(inputCls, "pl-9")}
+        className={cx(inputCls, "w-full pl-9")}
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
