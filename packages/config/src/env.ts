@@ -49,9 +49,11 @@ export const envSchema = z
     DATABASE_SSL: z.enum(["disable", "require", "no-verify"]).default("disable"),
 
     /**
-     * Number of reverse proxies in front of the service (Railway edge = 1).
-     * Used to read the real client IP from X-Forwarded-For without trusting spoofed entries.
-     * When unset: 1 on Railway (detected from RAILWAY_ENVIRONMENT_ID), otherwise 0. Without it on
+     * Number of trusted proxy entries to skip when reading the real client IP from the socket and
+     * X-Forwarded-For, so entries a caller adds to that header themselves are never used.
+     * When unset: 2 on Railway (detected from RAILWAY_ENVIRONMENT_ID), otherwise 0. Railway's edge
+     * appends its own address to X-Forwarded-For ("<client>, <edge>") and then connects from that
+     * same address, so both the socket and the last header entry are Railway's. Without it on
      * Railway every request appears to come from Railway's proxy, which breaks IP allow-lists, puts
      * all callers in one per-IP rate limit and records the proxy in the audit log.
      */
@@ -319,10 +321,11 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Env {
   const cleaned = Object.fromEntries(
     Object.entries(source).filter(([, v]) => v !== undefined && v !== ""),
   );
-  // On Railway every request passes through one edge proxy; trust exactly that hop unless the
+  // On Railway the socket address and the last X-Forwarded-For entry are both Railway's edge
+  // (observed: "X-Forwarded-For: <client>, <edge>" from <edge>). Skip exactly those two unless the
   // deployment sets TRUST_PROXY_HOPS itself.
   if (cleaned.TRUST_PROXY_HOPS === undefined && cleaned.RAILWAY_ENVIRONMENT_ID !== undefined) {
-    cleaned.TRUST_PROXY_HOPS = "1";
+    cleaned.TRUST_PROXY_HOPS = "2";
   }
   const result = envSchema.safeParse(cleaned);
   if (!result.success) {
