@@ -151,7 +151,16 @@ function OverviewTab({ s }: { s: Source }) {
   );
 }
 
-function ApiTab({ s, onChanged }: { s: Source; onChanged: () => Promise<void> }) {
+function ApiTab({
+  s,
+  onChanged,
+  standardLimit,
+}: {
+  s: Source;
+  onChanged: () => Promise<void>;
+  /** The limit a source gets when none is set for it (RATE_LIMIT_PLATFORM_DEFAULT_PER_MIN). */
+  standardLimit: number | undefined;
+}) {
   const keys = useLoad(() => api.get<{ items: Key[] }>(`/platforms/${s.code}/keys`), [s.code]);
   const [issuing, setIssuing] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
@@ -278,13 +287,20 @@ function ApiTab({ s, onChanged }: { s: Source; onChanged: () => Promise<void> })
           </Notice>
         )}
         <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Request limit per minute" hint="Leave empty to use the standard limit.">
+          <Field
+            label="Request limit per minute"
+            hint={
+              standardLimit
+                ? `Leave empty to use the standard limit (${standardLimit} per minute).`
+                : "Leave empty to use the standard limit."
+            }
+          >
             <Input
               type="number"
               min={1}
               value={rate}
               onChange={(e) => setRate(e.target.value)}
-              placeholder="Standard"
+              placeholder={standardLimit ? `Standard (${standardLimit} per minute)` : "Standard"}
             />
           </Field>
           <Field
@@ -664,7 +680,7 @@ function View() {
   const params = useSearchParams();
   const tab = params.get("tab") ?? "overview";
   const { data, error, loading, reload } = useLoad(
-    () => api.get<{ items: Source[] }>("/platforms"),
+    () => api.get<{ items: Source[]; default_rate_limit: number }>("/platforms"),
     [],
   );
   const s = data?.items.find((x) => x.code === code);
@@ -700,7 +716,9 @@ function View() {
         ]}
       />
       {tab === "overview" && <OverviewTab s={s} />}
-      {tab === "api" && <ApiTab s={s} onChanged={reload} />}
+      {tab === "api" && (
+        <ApiTab s={s} onChanged={reload} standardLimit={data?.default_rate_limit} />
+      )}
       {tab === "recordings" && <SourceRecordings code={s.code} />}
       {tab === "logins" && <LoginsTab code={s.code} onChanged={reload} />}
       {tab === "settings" && <SettingsTab s={s} onChanged={reload} />}
