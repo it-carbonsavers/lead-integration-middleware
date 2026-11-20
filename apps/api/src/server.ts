@@ -44,6 +44,8 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => void shutdown("SIGINT"));
 
   await app.listen({ port: config.PORT, host: config.HOST });
+  // How the caller's IP is read (allow-lists, rate limits, audit log): 0 = the socket address.
+  app.log.info({ trustProxyHops: config.TRUST_PROXY_HOPS }, "client IP source");
 }
 
 main().catch((err: unknown) => {
