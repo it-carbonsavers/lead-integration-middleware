@@ -51,8 +51,13 @@ export const envSchema = z
     /**
      * Number of reverse proxies in front of the service (Railway edge = 1).
      * Used to read the real client IP from X-Forwarded-For without trusting spoofed entries.
+     * When unset: 1 on Railway (detected from RAILWAY_ENVIRONMENT_ID), otherwise 0. Without it on
+     * Railway every request appears to come from Railway's proxy, which breaks IP allow-lists, puts
+     * all callers in one per-IP rate limit and records the proxy in the audit log.
      */
     TRUST_PROXY_HOPS: intFromEnv(0, 0, 5),
+    /** Set by Railway on every service; used only to choose safe defaults (see TRUST_PROXY_HOPS). */
+    RAILWAY_ENVIRONMENT_ID: z.string().optional(),
     BODY_LIMIT_BYTES: intFromEnv(65_536, 1_024, 1_048_576),
 
     /** Per-client-IP request ceiling on the provider API (applies before authentication). */
@@ -314,6 +319,11 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Env {
   const cleaned = Object.fromEntries(
     Object.entries(source).filter(([, v]) => v !== undefined && v !== ""),
   );
+  // On Railway every request passes through one edge proxy; trust exactly that hop unless the
+  // deployment sets TRUST_PROXY_HOPS itself.
+  if (cleaned.TRUST_PROXY_HOPS === undefined && cleaned.RAILWAY_ENVIRONMENT_ID !== undefined) {
+    cleaned.TRUST_PROXY_HOPS = "1";
+  }
   const result = envSchema.safeParse(cleaned);
   if (!result.success) {
     throw new ConfigError(

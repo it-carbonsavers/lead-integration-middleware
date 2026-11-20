@@ -17,6 +17,19 @@ describe("loadConfig", () => {
     expect(c.DUPLICATE_WINDOW_DAYS).toBe(30);
   });
 
+  it("trusts one proxy hop on Railway unless TRUST_PROXY_HOPS is set", () => {
+    expect(loadConfig({ ...base, RAILWAY_ENVIRONMENT_ID: "env-1" }).TRUST_PROXY_HOPS).toBe(1);
+    expect(
+      loadConfig({ ...base, RAILWAY_ENVIRONMENT_ID: "env-1", TRUST_PROXY_HOPS: "0" })
+        .TRUST_PROXY_HOPS,
+    ).toBe(0);
+    expect(
+      loadConfig({ ...base, RAILWAY_ENVIRONMENT_ID: "env-1", TRUST_PROXY_HOPS: "2" })
+        .TRUST_PROXY_HOPS,
+    ).toBe(2);
+    expect(loadConfig(base).TRUST_PROXY_HOPS).toBe(0);
+  });
+
   it("fails without DATABASE_URL and names the variable, not values", () => {
     expect(() => loadConfig({})).toThrow(ConfigError);
     try {
