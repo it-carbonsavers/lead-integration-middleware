@@ -151,6 +151,19 @@ function OverviewTab({ s }: { s: Source }) {
   );
 }
 
+/**
+ * An IPv4/IPv6 address with an optional /prefix, the same rule the API applies (it checks again).
+ * Lets the form name the bad line instead of showing the API's generic validation message.
+ */
+function isCidr(value: string) {
+  const [addr = "", bits, extra] = value.split("/");
+  if (extra !== undefined || (bits !== undefined && !/^\d{1,3}$/.test(bits))) return false;
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(addr);
+  if (v4) return v4.slice(1).every((o) => Number(o) <= 255) && Number(bits ?? 32) <= 32;
+  const v6 = /^[0-9a-fA-F:.]+$/.test(addr) && addr.includes(":");
+  return v6 && Number(bits ?? 128) <= 128;
+}
+
 function ApiTab({
   s,
   onChanged,
@@ -167,6 +180,7 @@ function ApiTab({
   const [error, setError] = useState<unknown>(null);
   const [rate, setRate] = useState(s.rate_limit_per_min?.toString() ?? "");
   const [cidrs, setCidrs] = useState(s.allowed_cidrs.join("\n"));
+  const [cidrError, setCidrError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   return (
@@ -305,19 +319,41 @@ function ApiTab({
           </Field>
           <Field
             label="Allowed IP addresses"
-            hint="One per line (e.g. 203.0.113.10 or 203.0.113.0/24). Empty = any address."
+            hint={
+              cidrError ? (
+                <span className="text-red-600">{cidrError}</span>
+              ) : (
+                "One per line (e.g. 203.0.113.10 or 203.0.113.0/24). Empty = any address."
+              )
+            }
           >
-            <Textarea rows={3} value={cidrs} onChange={(e) => setCidrs(e.target.value)} />
+            <Textarea
+              rows={3}
+              value={cidrs}
+              aria-invalid={cidrError ? true : undefined}
+              onChange={(e) => {
+                setCidrs(e.target.value);
+                setCidrError(null);
+              }}
+            />
           </Field>
         </div>
         <div className="mt-4 flex justify-end">
           <Button
             onClick={async () => {
               setError(null);
+              const list = cidrs.split(/[\s,]+/).filter(Boolean);
+              const bad = list.find((c) => !isCidr(c));
+              if (bad) {
+                setCidrError(
+                  `"${bad}" is not an IP address or range. Use one per line, e.g. 203.0.113.10 or 203.0.113.0/24.`,
+                );
+                return;
+              }
               try {
                 await api.patch(`/platforms/${s.code}`, {
                   rate_limit_per_min: rate ? Number(rate) : null,
-                  allowed_cidrs: cidrs.split(/[\s,]+/).filter(Boolean),
+                  allowed_cidrs: list,
                 });
                 await onChanged();
                 setSaved(true);
