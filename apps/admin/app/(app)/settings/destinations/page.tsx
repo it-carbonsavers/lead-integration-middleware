@@ -59,7 +59,7 @@ export default function DestinationsPage() {
           description={
             d.type === "hubspot"
               ? "Creates a Contact and a Lead in HubSpot (never a Deal)."
-              : "Local test destination: nothing leaves this computer."
+              : "Test destination: leads are stored here to show what HubSpot would receive; nothing is sent on."
           }
           actions={
             <div className="flex gap-2">

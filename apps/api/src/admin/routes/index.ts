@@ -31,6 +31,7 @@ import { adminLeadRoutes } from "./leads.js";
 import { sftpRuntime, type SftpRuntime } from "@lim/recordings";
 import { adminManageRoutes } from "./manage.js";
 import { adminReportRoutes } from "./reports.js";
+import { hubspotRouting } from "../hubspot-routing.js";
 import { adminPerformanceRoutes } from "./performance.js";
 import { adminRecordingRoutes } from "./recordings.js";
 import { adminSystemRoutes } from "./system.js";
@@ -119,6 +120,7 @@ export async function adminRoutes(app: FastifyInstance, opts: AdminRouteOptions)
 
   r.get("/auth/me", async (req) => {
     const a = req.admin!;
+    const routing = a.platformId ? null : await hubspotRouting(db, config);
     return {
       id: a.id,
       email: a.email,
@@ -128,7 +130,11 @@ export async function adminRoutes(app: FastifyInstance, opts: AdminRouteOptions)
       roles: a.roles,
       permissions: [...a.permissions].sort(),
       environment: config.APP_ENV,
-      hubspot_enabled: config.HUBSPOT_ENABLED,
+      hubspot_enabled: routing?.enabled ?? config.HUBSPOT_ENABLED,
+      // Staff only: which sources' leads go to HubSpot (for the environment notice).
+      ...(routing
+        ? { hubspot_sources: routing.sources, hubspot_all_sources: routing.all_sources }
+        : {}),
     };
   });
 

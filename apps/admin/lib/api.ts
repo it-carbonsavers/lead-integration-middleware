@@ -71,6 +71,9 @@ export interface Me {
   permissions: string[];
   environment: string;
   hubspot_enabled: boolean;
+  /** Staff only: provider codes whose leads go to HubSpot. */
+  hubspot_sources?: string[];
+  hubspot_all_sources?: boolean;
 }
 
 export interface Paged<T> {

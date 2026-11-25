@@ -31,6 +31,7 @@ import { actorOf, generatePassword, hashPassword, requirePermission } from "../a
 import { dayEnd, dayStart } from "../lead-query.js";
 import { syncSftpAccount } from "@lim/recordings";
 import type { AdminRouteOptions } from "./index.js";
+import { hubspotRouting } from "../hubspot-routing.js";
 
 const cidr = z.string().refine((c) => {
   const [addr, bits] = c.split("/");
@@ -544,7 +545,12 @@ export async function adminManageRoutes(app: FastifyInstance, opts: AdminRouteOp
 
   // --- Destinations ------------------------------------------------------------
   const destPerm = requirePermission("destinations.manage", { internalOnly: true });
+  const hubspotRoutingFields = async () => {
+    const r = await hubspotRouting(db, config);
+    return { hubspot_enabled: r.enabled, hubspot_sources: r.sources };
+  };
   r.get("/destinations", { preHandler: destPerm }, async () => ({
+    ...(await hubspotRoutingFields()),
     items: (await listDestinations(db)).map((d) => ({
       id: d.id,
       name: d.name,
@@ -555,7 +561,6 @@ export async function adminManageRoutes(app: FastifyInstance, opts: AdminRouteOp
       credential_ref: d.credential_ref,
       credential_present: d.type === "mock" ? true : Boolean(process.env[d.credential_ref]),
     })),
-    hubspot_enabled: config.HUBSPOT_ENABLED,
   }));
 
   r.post(

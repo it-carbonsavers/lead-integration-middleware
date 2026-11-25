@@ -239,3 +239,33 @@ describe("performance reports", () => {
     }
   });
 });
+
+describe("environment notice routing", () => {
+  it("reports HubSpot as on when the worker has it on, with the sources routed to it", async () => {
+    const me = async () => (await get(staff, "/auth/me")).json();
+    expect(await me()).toMatchObject({ hubspot_enabled: false, hubspot_sources: [] });
+
+    await t.db
+      .insertInto("service_status")
+      .values({ name: "worker", detail: JSON.stringify({ hubspot_enabled: true }) })
+      .onConflict((oc) =>
+        oc.column("name").doUpdateSet({ detail: JSON.stringify({ hubspot_enabled: true }) }),
+      )
+      .execute();
+    const hs = await createDestination(
+      t.db,
+      { type: "hubspot", name: "HubSpot", isDefault: false, config: {}, credentialRef: "HS_X" },
+      actor,
+    );
+    await t.db
+      .updateTable("platforms")
+      .set({ destination_id: hs.id })
+      .where("code", "=", "PRVB")
+      .execute();
+    expect(await me()).toMatchObject({
+      hubspot_enabled: true,
+      hubspot_sources: ["PRVB"],
+      hubspot_all_sources: false,
+    });
+  });
+});

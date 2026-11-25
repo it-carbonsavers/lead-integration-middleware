@@ -70,6 +70,18 @@ const NAV: NavItem[] = [
   { href: "/settings", label: "Settings", icon: Settings, show: canSeeSettings },
 ];
 
+/** Where leads go in a non-production environment, shown to staff above every page. */
+function environmentNotice(me: Me): string {
+  if (!me.hubspot_enabled)
+    return "Test environment · leads go to a test destination, nothing is sent to HubSpot.";
+  const sources = me.hubspot_sources ?? [];
+  if (me.hubspot_all_sources)
+    return "Test environment · all leads are sent to the live HubSpot, so only send leads marked TEST.";
+  if (sources.length === 0)
+    return "Test environment · HubSpot is connected but no source sends to it; leads go to a test destination.";
+  return `Test environment · leads from ${sources.join(", ")} are sent to the live HubSpot and must be marked TEST; other leads go to a test destination.`;
+}
+
 function NavLinks({
   items,
   pathname,
@@ -242,9 +254,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <Logo width={96} />
             <span className="text-sm font-semibold text-slate-900">Lead Integration</span>
           </header>
-          {!isProvider(me) && !me.hubspot_enabled && (
+          {!isProvider(me) && me.environment !== "production" && (
             <div className="border-b border-slate-200 bg-white px-6 py-2 text-xs text-slate-500 lg:px-10">
-              Local review environment · leads go to a test destination, nothing is sent to HubSpot.
+              {environmentNotice(me)}
             </div>
           )}
           <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-10">
