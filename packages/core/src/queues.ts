@@ -6,6 +6,7 @@
  *   recordings-maintenance re-match unmatched recordings, mark overdue consent
  *   sync-consent          update consent status at the destination
  *   retention-purge       delete expired recordings
+ *   sync-outcomes         read delivered leads' outcomes back from HubSpot
  */
 
 export interface QueueDefinition {
@@ -61,6 +62,14 @@ export const QUEUES = {
     retryBackoff: true,
     expireInSeconds: 120,
     deadLetter: DEAD_LETTER_QUEUE,
+  },
+  /** Refresh delivered leads' outcomes from HubSpot (read-only), every 15 minutes. */
+  syncOutcomes: {
+    name: "sync-outcomes",
+    retryLimit: 1,
+    retryDelay: 120,
+    retryBackoff: false,
+    expireInSeconds: 900,
   },
   retentionPurge: {
     name: "retention-purge",

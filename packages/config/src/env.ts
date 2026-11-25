@@ -102,6 +102,32 @@ export const envSchema = z
       .enum(["true", "false"])
       .default("false")
       .transform((v) => v === "true"),
+    // --- Lead outcomes (performance reporting) -------------------------------------
+    /**
+     * Read what happened to delivered leads from HubSpot every 15 minutes (read-only). Default off.
+     * Only leads in this environment's own database are looked up.
+     */
+    OUTCOME_SYNC_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
+    /** Leads received within this many days keep being refreshed. */
+    OUTCOME_SYNC_WINDOW_DAYS: intFromEnv(180, 1, 730),
+    /** Most leads refreshed per run (oldest refresh first). */
+    OUTCOME_SYNC_BATCH: intFromEnv(500, 1, 5_000),
+    /** Deal pipelines whose name matches (case-insensitive) count as a sale. */
+    OUTCOME_SOLD_PIPELINES: z
+      .string()
+      .min(1)
+      .refine((v) => {
+        try {
+          new RegExp(v, "i");
+          return true;
+        } catch {
+          return false;
+        }
+      }, "must be a valid regular expression")
+      .default("assessment|installation"),
     // --- Consent recordings and SFTP (Phase 5) -----------------------------------
     /** Absolute directory for encrypted recording files (local stand-in for private object storage). */
     RECORDING_STORAGE_DIR: absolutePath.optional(),
