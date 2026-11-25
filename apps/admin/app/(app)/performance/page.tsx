@@ -220,8 +220,8 @@ function View() {
 
       {sync && !sync.enabled && (
         <Notice tone="info">
-          Outcomes are not read from HubSpot in this environment, so the figures below stay empty.
-          They fill in where the outcome sync is switched on (production).
+          Outcomes are not being read from HubSpot: the outcome sync is switched off in this
+          environment (OUTCOME_SYNC_ENABLED on the worker), so the figures below stay empty.
         </Notice>
       )}
       {sync?.deals_unreadable && (

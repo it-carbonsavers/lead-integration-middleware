@@ -32,10 +32,12 @@ async function main(): Promise<void> {
 
   await boss.start();
   await ensureQueues(boss, config);
-  await touchServiceStatus(db, "worker", {
+  // The admin reads these to show what the worker actually does (the API's own settings may differ).
+  const workerStatus = {
     hubspot_enabled: config.HUBSPOT_ENABLED,
-    started: true,
-  });
+    outcome_sync_enabled: config.OUTCOME_SYNC_ENABLED,
+  };
+  await touchServiceStatus(db, "worker", { ...workerStatus, started: true });
 
   await boss.schedule(QUEUES.heartbeat.name, "* * * * *", null, { tz: "UTC" });
 
@@ -95,7 +97,7 @@ async function main(): Promise<void> {
 
   await boss.work(QUEUES.heartbeat.name, async (jobs) => {
     log.info({ jobs: jobs.length }, "worker heartbeat");
-    await touchServiceStatus(db, "worker", { hubspot_enabled: config.HUBSPOT_ENABLED });
+    await touchServiceStatus(db, "worker", workerStatus);
   });
 
   // Deliveries are fetched in batches and settled per job: a failure retries only that lead.
