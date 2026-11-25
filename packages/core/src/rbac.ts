@@ -85,6 +85,7 @@ export type AuditAction =
   | "lead.search"
   | "lead.pii_reveal"
   | "lead.export"
+  | "performance.export"
   | "submission.search"
   | "agent.updated"
   | "destination.tested"

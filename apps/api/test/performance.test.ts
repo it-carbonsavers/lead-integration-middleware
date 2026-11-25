@@ -1,0 +1,241 @@
+import type { FastifyInstance, LightMyRequestResponse } from "fastify";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  createDestination,
+  createOrganisation,
+  createPlatform,
+  issueApiCredential,
+  type Actor,
+} from "@lim/db";
+import type { PgBoss } from "@lim/jobs";
+import { buildApp } from "../src/app.js";
+import { hashPassword } from "../src/admin/auth.js";
+import { createTestDatabase, startTestBoss, type TestDatabase } from "../../../test/helpers.js";
+
+const actor: Actor = { type: "system", label: "test" };
+const PW = "correct horse battery staple";
+let t: TestDatabase;
+let app: FastifyInstance;
+let boss: PgBoss;
+const keys: Record<string, string> = {};
+let seq = 0;
+
+const cookieOf = (res: LightMyRequestResponse) => {
+  const c = res.cookies.find((x) => x.name === "lim_admin_session");
+  return c ? `lim_admin_session=${c.value}` : "";
+};
+async function login(email: string, password = PW) {
+  const res = await app.inject({
+    method: "POST",
+    url: "/admin/v1/auth/login",
+    headers: { "x-lim-admin": "1" },
+    payload: { email, password },
+  });
+  return cookieOf(res);
+}
+const get = (cookie: string, url: string) =>
+  app.inject({ method: "GET", url: `/admin/v1${url}`, headers: { cookie } });
+
+/** Submits a lead, marks it delivered, and stores its outcome (null = no outcome yet). */
+async function lead(
+  platform: string,
+  outcome: Record<string, unknown> | null,
+  campaign = "Spring",
+): Promise<string> {
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/leads",
+    headers: { authorization: `Bearer ${keys[platform]}` },
+    payload: {
+      schema_version: "1",
+      external_lead_id: `PERF-${++seq}`,
+      transferred_at: new Date(Date.now() - 3_600_000).toISOString(),
+      campaign,
+      customer: { first_name: "Test", last_name: "Lead", phone: "0491 570 006" },
+      agent: { external_id: "AG-1" },
+      consent: { verbal_consent: false },
+    },
+  });
+  expect(res.statusCode).toBe(202);
+  const ref = res.json().lead_ref as string;
+  const row = await t.db
+    .updateTable("leads")
+    .set({ status: "delivered", delivered_at: new Date() })
+    .where("lead_ref", "=", ref)
+    .returning("id")
+    .executeTakeFirstOrThrow();
+  if (outcome) {
+    await t.db
+      .insertInto("lead_outcomes")
+      .values({ lead_id: row.id, hubspot_lead_id: `HS${seq}`, ...outcome })
+      .execute();
+  }
+  return ref;
+}
+
+let staff: string;
+
+beforeAll(async () => {
+  t = await createTestDatabase({ config: { RATE_LIMIT_IP_PER_MIN: "5000" } });
+  boss = await startTestBoss(t);
+  app = await buildApp({ config: t.config, db: t.db, boss, logger: false });
+  await app.ready();
+  const org = await createOrganisation(t.db, { name: "Org", slug: "org" }, actor);
+  await createDestination(
+    t.db,
+    { type: "mock", name: "Mock", isDefault: true, config: {}, credentialRef: "NONE_REQUIRED" },
+    actor,
+  );
+  for (const code of ["PRVA", "PRVB"]) {
+    const p = await createPlatform(
+      t.db,
+      { organisationId: org.id, code, displayName: `Provider ${code}`, rateLimitPerMin: 5000 },
+      actor,
+    );
+    keys[code] = (
+      await issueApiCredential(t.db, { platformId: p.id, envTag: "test" }, actor)
+    ).token;
+  }
+  const u = await t.db
+    .insertInto("admin_users")
+    .values({
+      email: "super@test.local",
+      name: "Super",
+      auth_provider: "local",
+      password_hash: await hashPassword(PW),
+      status: "active",
+    })
+    .returning("id")
+    .executeTakeFirstOrThrow();
+  await t.db
+    .insertInto("admin_user_roles")
+    .values({ user_id: u.id, role_code: "super_admin" })
+    .execute();
+  staff = await login("super@test.local");
+
+  // PRVA: one sale with a value, one sale without, one lost, one still new, one without outcome.
+  await lead("PRVA", {
+    lead_stage: "Qualified [Create Deal]",
+    calls_attempted: 2,
+    calls_connected: 1,
+    deal_count: 1,
+    proposal_sent_at: new Date(),
+    sold: true,
+    sold_at: new Date(),
+    sale_value: 9000,
+    sale_value_field: "total_amount",
+  });
+  await lead("PRVA", { lead_stage: "Qualified [Create Deal]", deal_count: 1, sold: true });
+  await lead("PRVA", {
+    lead_stage: "Qualified [Create Deal]",
+    calls_connected: 1,
+    deal_count: 1,
+    proposal_sent_at: new Date(),
+    lost: true,
+    lost_reason: "Price",
+  });
+  await lead("PRVA", { lead_stage: "New" }, "Winter");
+  await lead("PRVA", null);
+  // PRVB: one disqualified after a call, one still being called.
+  await lead("PRVB", {
+    lead_stage: "Disqualified",
+    lead_stage_id: "unqualified-stage-id",
+    calls_attempted: 1,
+    calls_connected: 1,
+    disqualification_reason: "Not interested",
+  });
+  await lead("PRVB", { lead_stage: "Attempt 2", calls_attempted: 2 });
+});
+
+afterAll(async () => {
+  await app?.close();
+  await boss?.stop({ graceful: false, close: true });
+  await t?.destroy();
+});
+
+describe("performance reports", () => {
+  it("builds a cumulative funnel with sale value and coverage", async () => {
+    const res = await get(staff, "/performance/summary");
+    expect(res.statusCode).toBe(200);
+    const s = res.json();
+    expect(s.totals).toMatchObject({
+      received: 7,
+      tracked: 6,
+      contacted: 4,
+      interested: 3,
+      proposal_sent: 3,
+      sold: 2,
+      lost: 1,
+      sale_value: 9000,
+      sold_with_value: 1,
+      value_coverage_pct: 50,
+    });
+    expect(s.by_outcome).toMatchObject({
+      sold: 2,
+      lost: 1,
+      disqualified: 1,
+      attempting: 1,
+      new: 1,
+      not_tracked: 1,
+    });
+    expect(s.lost_reasons).toEqual([{ reason: "Price", n: 1 }]);
+    expect(s.disqualification_reasons).toEqual([{ reason: "Not interested", n: 1 }]);
+    expect(s.campaigns).toEqual(["Spring", "Winter"]);
+    expect(s.sync).toMatchObject({ enabled: false });
+  });
+
+  it("compares sources and filters by source, campaign and outcome", async () => {
+    const items = (await get(staff, "/performance/providers")).json().items;
+    const a = items.find((r: { platform: string }) => r.platform === "PRVA");
+    const b = items.find((r: { platform: string }) => r.platform === "PRVB");
+    expect(a).toMatchObject({
+      received: 5,
+      sold: 2,
+      conversion_rate_pct: 40,
+      value_per_lead: 1800,
+    });
+    expect(b).toMatchObject({ received: 2, sold: 0, conversion_rate_pct: 0 });
+
+    expect((await get(staff, "/performance/summary?platform=PRVB")).json().totals.received).toBe(2);
+    expect((await get(staff, "/performance/summary?campaign=Winter")).json().totals.received).toBe(
+      1,
+    );
+    expect((await get(staff, "/performance/summary?outcome=sold")).json().totals.received).toBe(2);
+  });
+
+  it("exports one row per lead without personal data, and audits it", async () => {
+    const res = await get(staff, "/performance/export.csv?platform=PRVA");
+    expect(res.statusCode).toBe(200);
+    const lines = res.body.trim().split("\r\n");
+    expect(lines).toHaveLength(6);
+    expect(lines[0]).toContain("lead_ref,source,campaign");
+    expect(res.body).toContain(",sold,");
+    expect(res.body).toContain("9000");
+    expect(res.body).not.toContain("Test");
+    expect(res.body).not.toContain("0491");
+    const audit = await t.db
+      .selectFrom("audit_log")
+      .select("action")
+      .where("action", "=", "performance.export")
+      .execute();
+    expect(audit).toHaveLength(1);
+  });
+
+  it("is not available to lead provider users", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/admin/v1/platforms/PRVB/users",
+      headers: { cookie: staff, "x-lim-admin": "1" },
+      payload: { email: "portal.b@provider.test", name: "Provider B user" },
+    });
+    expect(created.statusCode).toBe(201);
+    const provider = await login("portal.b@provider.test", created.json().temporary_password);
+    for (const path of [
+      "/performance/summary",
+      "/performance/providers",
+      "/performance/export.csv",
+    ]) {
+      expect((await get(provider, path)).statusCode).toBe(403);
+    }
+  });
+});

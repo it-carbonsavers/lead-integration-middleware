@@ -31,6 +31,7 @@ import { adminLeadRoutes } from "./leads.js";
 import { sftpRuntime, type SftpRuntime } from "@lim/recordings";
 import { adminManageRoutes } from "./manage.js";
 import { adminReportRoutes } from "./reports.js";
+import { adminPerformanceRoutes } from "./performance.js";
 import { adminRecordingRoutes } from "./recordings.js";
 import { adminSystemRoutes } from "./system.js";
 import { adminOverviewRoutes } from "./overview.js";
@@ -175,6 +176,7 @@ export async function adminRoutes(app: FastifyInstance, opts: AdminRouteOptions)
   await app.register(adminLeadRoutes, deps);
   await app.register(adminManageRoutes, deps);
   await app.register(adminReportRoutes, deps);
+  await app.register(adminPerformanceRoutes, deps);
   await app.register(adminRecordingRoutes, deps);
   await app.register(adminSystemRoutes, deps);
   await app.register(adminOverviewRoutes, deps);

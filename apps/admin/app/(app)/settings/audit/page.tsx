@@ -38,6 +38,7 @@ const ACTION_LABEL: Record<string, string> = {
   "lead.search": "Searched leads",
   "lead.pii_reveal": "Showed customer details",
   "lead.export": "Exported leads",
+  "performance.export": "Exported lead performance",
   "lead.retry_requested": "Retried a delivery",
   "lead.anonymised": "Anonymised a lead",
   "submission.search": "Searched submissions",

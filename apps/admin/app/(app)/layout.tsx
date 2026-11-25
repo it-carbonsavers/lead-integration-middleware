@@ -11,6 +11,7 @@ import {
   Menu,
   Plug,
   Settings,
+  TrendingUp,
   UserCircle,
   Users,
   X,
@@ -59,6 +60,12 @@ const NAV: NavItem[] = [
     label: "Reports",
     icon: BarChart3,
     show: (m) => m.permissions.includes("reports.read"),
+  },
+  {
+    href: "/performance",
+    label: "Performance",
+    icon: TrendingUp,
+    show: (m) => isStaff(m) && m.permissions.includes("reports.read"),
   },
   { href: "/settings", label: "Settings", icon: Settings, show: canSeeSettings },
 ];
