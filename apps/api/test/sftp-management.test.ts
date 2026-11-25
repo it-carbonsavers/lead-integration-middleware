@@ -259,6 +259,7 @@ describe("SFTP server accounts (SFTPGo)", () => {
       host: "127.0.0.1",
       port: sftpPort,
       host_key_fingerprint: fingerprintOf(host.public),
+      host_key_fingerprints: [{ type: "ED25519", fingerprint: fingerprintOf(host.public) }],
     });
   });
 

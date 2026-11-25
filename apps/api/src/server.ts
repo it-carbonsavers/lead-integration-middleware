@@ -14,9 +14,16 @@ async function main(): Promise<void> {
   const db = createDb(config);
   // Producer only: the API enqueues jobs; the worker runs them and maintains the queues.
   const boss = createBoss(config, { poolMax: 3, role: "producer" });
+  // Queue errors (e.g. a dropped database connection) are logged, never fatal: pg-boss retries.
+  let log: { error: (obj: object, msg: string) => void } | null = null;
+  boss.on("error", (err) => {
+    if (log) log.error({ err }, "job queue error");
+    else console.error(`job queue error: ${err instanceof Error ? err.message : String(err)}`);
+  });
   await boss.start();
   await ensureQueues(boss, config); // idempotent; lets the API accept leads even before the worker first starts
   const app = await buildApp({ config, db, boss });
+  log = app.log;
 
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
@@ -37,6 +44,8 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => void shutdown("SIGINT"));
 
   await app.listen({ port: config.PORT, host: config.HOST });
+  // How the caller's IP is read (allow-lists, rate limits, audit log): 0 = the socket address.
+  app.log.info({ trustProxyHops: config.TRUST_PROXY_HOPS }, "client IP source");
 }
 
 main().catch((err: unknown) => {

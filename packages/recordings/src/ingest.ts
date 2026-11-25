@@ -27,7 +27,13 @@ export interface IngestDeps {
 
 export interface IncomingFile {
   platformId: string;
-  mode: "sftp_hosted";
+  /** How the file arrived: our SFTP server, or uploaded in the web portal. */
+  mode: "sftp_hosted" | "portal_upload";
+  /**
+   * Lead chosen by the uploader (portal upload). Must belong to the same source; the file is
+   * then attached to it instead of being matched by its name.
+   */
+  chosenLead?: { id: string; uploadedBy: string | null };
   remotePath: string;
   fileName: string;
   size: number;
@@ -176,8 +182,29 @@ export async function ingestRecording(
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    // 5. Match
-    const matched = await matchRecording(deps, rec, platform.code);
+    // 5. Match: to the lead the uploader chose, otherwise by the file name
+    let matched: string | null = null;
+    if (file.chosenLead) {
+      const lead = await db
+        .selectFrom("leads")
+        .select(["id", "lead_ref", "consent_status"])
+        .where("id", "=", file.chosenLead.id)
+        .where("platform_id", "=", platform.id)
+        .executeTakeFirst();
+      if (lead) {
+        await attach(
+          db,
+          rec.id,
+          lead,
+          "uploader",
+          { type: "admin", id: file.chosenLead.uploadedBy },
+          rec.original_filename,
+        );
+        if (deps.onMatched) await deps.onMatched(lead.id);
+        matched = lead.lead_ref;
+      }
+    }
+    if (!matched) matched = await matchRecording(deps, rec, platform.code);
     await finishJob("stored", { recordingId: rec.id });
     return { status: "stored", recordingId: rec.id, matchedLeadRef: matched };
   } catch (err) {
@@ -230,7 +257,7 @@ async function attach(
   db: Kysely<Database>,
   recordingId: string,
   lead: { id: string; consent_status: string },
-  matchedBy: "recording_ref" | "naming_convention" | "external_lead_id" | "admin",
+  matchedBy: "recording_ref" | "naming_convention" | "external_lead_id" | "admin" | "uploader",
   actor: { type: "system" | "admin"; id?: string | null },
   fileName: string,
 ) {

@@ -1,10 +1,12 @@
 /**
  * GET /system: operational status for administrators (internal staff with platforms.manage).
+ * GET /integration: the API address and documentation links to give lead providers.
  * Everything an operator needs to see at a glance: services up, queues, things needing attention.
  */
 
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
+import { publicApiUrl } from "@lim/config";
 import { QUEUES, DEAD_LETTER_QUEUE } from "@lim/core";
 import { isSchemaCurrent, pingDb } from "@lim/db";
 import { requirePermission } from "../auth.js";
@@ -14,6 +16,19 @@ const WORKER_STALE_SECONDS = 150;
 
 export async function adminSystemRoutes(app: FastifyInstance, opts: AdminRouteOptions) {
   const { db, config, boss } = opts;
+
+  app.get(
+    "/integration",
+    { preHandler: requirePermission("platforms.manage", { internalOnly: true }) },
+    async () => {
+      const base = publicApiUrl(config);
+      return {
+        api_base_url: base,
+        lead_endpoint: base ? `${base}/v1/leads` : null,
+        openapi_url: base ? `${base}/openapi.json` : null,
+      };
+    },
+  );
 
   app.get(
     "/system",

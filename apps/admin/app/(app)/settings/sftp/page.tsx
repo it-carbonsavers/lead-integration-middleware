@@ -2,14 +2,19 @@
 
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { RecordingHealth, type Source } from "@/components/sources";
+import {
+  HostKeyFingerprints,
+  RecordingHealth,
+  type HostKey,
+  type Source,
+} from "@/components/sources";
 import {
   Card,
-  CopyValue,
   KeyValue,
+  KeyValueSkeleton,
   Notice,
-  Skeleton,
   Table,
+  TableSkeleton,
   Td,
   Th,
   timeAgo,
@@ -28,6 +33,7 @@ export default function SftpSettingsPage() {
               host: string | null;
               port: number | null;
               host_key_fingerprint: string | null;
+              host_key_fingerprints?: HostKey[];
               max_file_mb: number;
             };
           }>(`/platforms/${first.code}/sftp`)
@@ -74,17 +80,13 @@ export default function SftpSettingsPage() {
                 { label: "Largest file", value: `${server.data.our_server.max_file_mb} MB` },
               ]}
             />
-            {server.data.our_server.host_key_fingerprint && (
-              <div>
-                <div className="mb-1 text-xs text-slate-500">
-                  Server fingerprint (give this to providers)
-                </div>
-                <CopyValue value={server.data.our_server.host_key_fingerprint} />
-              </div>
-            )}
+            <HostKeyFingerprints
+              items={server.data.our_server.host_key_fingerprints ?? []}
+              title="Server fingerprints (give these to providers; their SFTP client shows one of them)"
+            />
           </div>
-        ) : sources.loading ? (
-          <Skeleton className="h-24" />
+        ) : sources.loading || server.loading ? (
+          <KeyValueSkeleton rows={5} />
         ) : (
           <p className="text-sm text-slate-500">No source is set up for recordings yet.</p>
         )}
@@ -94,35 +96,40 @@ export default function SftpSettingsPage() {
         description="Open a source to change its login, issue a new password or test the connection."
         padded={false}
       >
-        <Table
-          head={
-            <tr>
-              <Th>Source</Th>
-              <Th>Status</Th>
-              <Th className="text-right">Last successful connection</Th>
-            </tr>
-          }
-        >
-          {sources.data?.items.map((s) => (
-            <tr key={s.code} className="hover:bg-slate-50">
-              <Td>
-                <Link
-                  className="font-medium text-slate-900 hover:underline"
-                  href={`/sources/${s.code}?tab=recordings`}
-                >
-                  {s.display_name}
-                </Link>
-                <div className="text-xs text-slate-500">{s.code}</div>
-              </Td>
-              <Td>
-                <RecordingHealth s={s} />
-              </Td>
-              <Td className="text-right text-slate-500">
-                {s.recording_ingest_mode === "none" ? "—" : timeAgo(s.sftp_last_success_at)}
-              </Td>
-            </tr>
-          ))}
-        </Table>
+        {!sources.data ? (
+          <TableSkeleton cols={3} rows={4} />
+        ) : (
+          <Table
+            loading={sources.loading}
+            head={
+              <tr>
+                <Th>Source</Th>
+                <Th>Status</Th>
+                <Th className="text-right">Last successful connection</Th>
+              </tr>
+            }
+          >
+            {sources.data.items.map((s) => (
+              <tr key={s.code} className="hover:bg-slate-50">
+                <Td>
+                  <Link
+                    className="font-medium text-slate-900 hover:underline"
+                    href={`/sources/${s.code}?tab=recordings`}
+                  >
+                    {s.display_name}
+                  </Link>
+                  <div className="text-xs text-slate-500">{s.code}</div>
+                </Td>
+                <Td>
+                  <RecordingHealth s={s} />
+                </Td>
+                <Td className="text-right text-slate-500">
+                  {s.recording_ingest_mode === "none" ? "—" : timeAgo(s.sftp_last_success_at)}
+                </Td>
+              </tr>
+            ))}
+          </Table>
+        )}
       </Card>
     </div>
   );

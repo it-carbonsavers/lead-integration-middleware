@@ -8,9 +8,11 @@ import { api } from "@/lib/api";
 import { can, useMe } from "@/lib/me";
 import { RecordingHealth, type Source } from "@/components/sources";
 import { SourceRecordings } from "@/components/source-recordings";
+import { ProviderApiDetails } from "@/components/api-details";
 import {
   Button,
   Card,
+  CardSkeleton,
   CopyValue,
   EmptyState,
   ErrorBanner,
@@ -25,8 +27,10 @@ import {
   Select,
   Skeleton,
   StatCard,
+  StatCardsSkeleton,
   StatusPill,
   Table,
+  TableSkeleton,
   Tabs,
   Td,
   Textarea,
@@ -105,8 +109,15 @@ function OverviewTab({ s }: { s: Source }) {
           description="Agents are added automatically when leads arrive."
           padded={false}
         >
-          {agents.data?.items.length ? (
+          {!agents.data || (agents.loading && !agents.data.items.length) ? (
+            agents.error && !agents.data ? (
+              <ErrorBanner error={agents.error} onRetry={agents.reload} />
+            ) : (
+              <TableSkeleton cols={3} rows={4} />
+            )
+          ) : agents.data.items.length ? (
             <Table
+              loading={agents.loading}
               head={
                 <tr>
                   <Th>Agent</Th>
@@ -140,13 +151,36 @@ function OverviewTab({ s }: { s: Source }) {
   );
 }
 
-function ApiTab({ s, onChanged }: { s: Source; onChanged: () => void }) {
+/**
+ * An IPv4/IPv6 address with an optional /prefix, the same rule the API applies (it checks again).
+ * Lets the form name the bad line instead of showing the API's generic validation message.
+ */
+function isCidr(value: string) {
+  const [addr = "", bits, extra] = value.split("/");
+  if (extra !== undefined || (bits !== undefined && !/^\d{1,3}$/.test(bits))) return false;
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(addr);
+  if (v4) return v4.slice(1).every((o) => Number(o) <= 255) && Number(bits ?? 32) <= 32;
+  const v6 = /^[0-9a-fA-F:.]+$/.test(addr) && addr.includes(":");
+  return v6 && Number(bits ?? 128) <= 128;
+}
+
+function ApiTab({
+  s,
+  onChanged,
+  standardLimit,
+}: {
+  s: Source;
+  onChanged: () => Promise<void>;
+  /** The limit a source gets when none is set for it (RATE_LIMIT_PLATFORM_DEFAULT_PER_MIN). */
+  standardLimit: number | undefined;
+}) {
   const keys = useLoad(() => api.get<{ items: Key[] }>(`/platforms/${s.code}/keys`), [s.code]);
   const [issuing, setIssuing] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [rate, setRate] = useState(s.rate_limit_per_min?.toString() ?? "");
   const [cidrs, setCidrs] = useState(s.allowed_cidrs.join("\n"));
+  const [cidrError, setCidrError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   return (
@@ -173,8 +207,15 @@ function ApiTab({ s, onChanged }: { s: Source; onChanged: () => void }) {
           </Button>
         }
       >
-        {keys.data?.items.length ? (
+        {!keys.data || (keys.loading && !keys.data.items.length) ? (
+          keys.error && !keys.data ? (
+            <ErrorBanner error={keys.error} onRetry={keys.reload} />
+          ) : (
+            <TableSkeleton cols={5} rows={2} />
+          )
+        ) : keys.data.items.length ? (
           <Table
+            loading={keys.loading}
             head={
               <tr>
                 <Th>Key</Th>
@@ -227,8 +268,8 @@ function ApiTab({ s, onChanged }: { s: Source; onChanged: () => void }) {
                             return;
                           try {
                             await api.del(`/platforms/${s.code}/keys/${k.key_prefix}`);
-                            keys.reload();
-                            onChanged();
+                            // keep the button busy until the list shows the key as revoked
+                            await Promise.all([keys.reload(), onChanged()]);
                           } catch (e) {
                             setError(e);
                           }
@@ -251,6 +292,8 @@ function ApiTab({ s, onChanged }: { s: Source; onChanged: () => void }) {
         )}
       </Card>
 
+      <ProviderApiDetails />
+
       <Card title="Access rules">
         {saved && (
           <Notice tone="success" onClose={() => setSaved(false)}>
@@ -258,33 +301,62 @@ function ApiTab({ s, onChanged }: { s: Source; onChanged: () => void }) {
           </Notice>
         )}
         <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Request limit per minute" hint="Leave empty to use the standard limit.">
+          <Field
+            label="Request limit per minute"
+            hint={
+              standardLimit
+                ? `Leave empty to use the standard limit (${standardLimit} per minute).`
+                : "Leave empty to use the standard limit."
+            }
+          >
             <Input
               type="number"
               min={1}
               value={rate}
               onChange={(e) => setRate(e.target.value)}
-              placeholder="Standard"
+              placeholder={standardLimit ? `Standard (${standardLimit} per minute)` : "Standard"}
             />
           </Field>
           <Field
             label="Allowed IP addresses"
-            hint="One per line (e.g. 203.0.113.10 or 203.0.113.0/24). Empty = any address."
+            hint={
+              cidrError ? (
+                <span className="text-red-600">{cidrError}</span>
+              ) : (
+                "One per line (e.g. 203.0.113.10 or 203.0.113.0/24). Empty = any address."
+              )
+            }
           >
-            <Textarea rows={3} value={cidrs} onChange={(e) => setCidrs(e.target.value)} />
+            <Textarea
+              rows={3}
+              value={cidrs}
+              aria-invalid={cidrError ? true : undefined}
+              onChange={(e) => {
+                setCidrs(e.target.value);
+                setCidrError(null);
+              }}
+            />
           </Field>
         </div>
         <div className="mt-4 flex justify-end">
           <Button
             onClick={async () => {
               setError(null);
+              const list = cidrs.split(/[\s,]+/).filter(Boolean);
+              const bad = list.find((c) => !isCidr(c));
+              if (bad) {
+                setCidrError(
+                  `"${bad}" is not an IP address or range. Use one per line, e.g. 203.0.113.10 or 203.0.113.0/24.`,
+                );
+                return;
+              }
               try {
                 await api.patch(`/platforms/${s.code}`, {
                   rate_limit_per_min: rate ? Number(rate) : null,
-                  allowed_cidrs: cidrs.split(/[\s,]+/).filter(Boolean),
+                  allowed_cidrs: list,
                 });
+                await onChanged();
                 setSaved(true);
-                onChanged();
               } catch (e) {
                 setError(e);
               }
@@ -298,11 +370,10 @@ function ApiTab({ s, onChanged }: { s: Source; onChanged: () => void }) {
         <IssueKey
           code={s.code}
           onClose={() => setIssuing(false)}
-          onIssued={(token) => {
+          onIssued={async (token) => {
+            await Promise.all([keys.reload(), onChanged()]);
             setIssuing(false);
             setNewKey(token);
-            keys.reload();
-            onChanged();
           }}
         />
       )}
@@ -317,13 +388,14 @@ function IssueKey({
 }: {
   code: string;
   onClose: () => void;
-  onIssued: (token: string) => void;
+  onIssued: (token: string) => Promise<void>;
 }) {
   const [label, setLabel] = useState("");
   const [days, setDays] = useState("365");
   const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
   return (
-    <Modal title="Issue an API key" onClose={onClose}>
+    <Modal title="Issue an API key" onClose={onClose} busy={busy}>
       <ErrorBanner error={error} />
       <div className="space-y-4">
         <Field label="Label" hint="Helps you tell keys apart, e.g. 'production 2026'.">
@@ -337,19 +409,23 @@ function IssueKey({
           </Select>
         </Field>
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button
+            loading={busy}
             onClick={async () => {
+              setBusy(true);
+              setError(null);
               try {
                 const r = await api.post<{ token: string }>(`/platforms/${code}/keys`, {
                   label: label || undefined,
                   expires_in_days: Number(days),
                 });
-                onIssued(r.token);
+                await onIssued(r.token);
               } catch (e) {
                 setError(e);
+                setBusy(false);
               }
             }}
           >
@@ -361,18 +437,20 @@ function IssueKey({
   );
 }
 
-function LoginsTab({ code }: { code: string }) {
+function LoginsTab({ code, onChanged }: { code: string; onChanged: () => Promise<void> }) {
   const users = useLoad(() => api.get<{ items: PortalUser[] }>(`/platforms/${code}/users`), [code]);
   const [adding, setAdding] = useState(false);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [secret, setSecret] = useState<{ email: string; password: string } | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [saving, setSaving] = useState(false);
   const act = async (fn: () => Promise<unknown>) => {
     setError(null);
     try {
       await fn();
-      users.reload();
+      // keeps the "Partner logins" count on the tab up to date; the button stays busy until done
+      await Promise.all([users.reload(), onChanged()]);
     } catch (e) {
       setError(e);
     }
@@ -399,8 +477,15 @@ function LoginsTab({ code }: { code: string }) {
           </Button>
         }
       >
-        {users.data?.items.length ? (
+        {!users.data || (users.loading && !users.data.items.length) ? (
+          users.error && !users.data ? (
+            <ErrorBanner error={users.error} onRetry={users.reload} />
+          ) : (
+            <TableSkeleton cols={4} rows={2} />
+          )
+        ) : users.data.items.length ? (
           <Table
+            loading={users.loading}
             head={
               <tr>
                 <Th>Person</Th>
@@ -484,11 +569,13 @@ function LoginsTab({ code }: { code: string }) {
         )}
       </Card>
       {adding && (
-        <Modal title="Add a partner login" onClose={() => setAdding(false)}>
+        <Modal title="Add a partner login" onClose={() => setAdding(false)} busy={saving}>
           <form
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
+              if (saving) return;
+              setSaving(true);
               void act(async () => {
                 const r = await api.post<{ email: string; temporary_password: string }>(
                   `/platforms/${code}/users`,
@@ -498,7 +585,7 @@ function LoginsTab({ code }: { code: string }) {
                 setAdding(false);
                 setEmail("");
                 setName("");
-              });
+              }).finally(() => setSaving(false));
             }}
           >
             <Field label="Name">
@@ -513,10 +600,17 @@ function LoginsTab({ code }: { code: string }) {
               />
             </Field>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setAdding(false)}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setAdding(false)}
+                disabled={saving}
+              >
                 Cancel
               </Button>
-              <Button type="submit">Add login</Button>
+              <Button type="submit" loading={saving}>
+                Add login
+              </Button>
             </div>
           </form>
         </Modal>
@@ -525,7 +619,7 @@ function LoginsTab({ code }: { code: string }) {
   );
 }
 
-function SettingsTab({ s, onChanged }: { s: Source; onChanged: () => void }) {
+function SettingsTab({ s, onChanged }: { s: Source; onChanged: () => Promise<void> }) {
   const me = useMe();
   const dests = useLoad(
     () =>
@@ -555,8 +649,14 @@ function SettingsTab({ s, onChanged }: { s: Source; onChanged: () => void }) {
           <div className="flex flex-wrap items-end gap-3">
             <div className="min-w-[260px] flex-1">
               <Field label="Destination">
-                <Select value={dest} onChange={(e) => setDest(e.target.value)}>
-                  <option value="">Standard destination</option>
+                <Select
+                  value={dest}
+                  onChange={(e) => setDest(e.target.value)}
+                  disabled={!dests.data}
+                >
+                  <option value="">
+                    {dests.data ? "Standard destination" : "Loading destinations…"}
+                  </option>
                   {dests.data?.items.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.name}
@@ -566,11 +666,12 @@ function SettingsTab({ s, onChanged }: { s: Source; onChanged: () => void }) {
               </Field>
             </div>
             <Button
+              disabled={!dests.data}
               onClick={async () => {
                 try {
                   await api.patch(`/platforms/${s.code}`, { destination_id: dest || null });
+                  await onChanged();
                   setSaved(true);
-                  onChanged();
                 } catch (e) {
                   setError(e);
                 }
@@ -596,7 +697,7 @@ function SettingsTab({ s, onChanged }: { s: Source; onChanged: () => void }) {
                 await api.patch(`/platforms/${s.code}`, {
                   status: s.status === "active" ? "suspended" : "active",
                 });
-                onChanged();
+                await onChanged();
               } catch (e) {
                 setError(e);
               }
@@ -615,12 +716,12 @@ function View() {
   const params = useSearchParams();
   const tab = params.get("tab") ?? "overview";
   const { data, error, loading, reload } = useLoad(
-    () => api.get<{ items: Source[] }>("/platforms"),
+    () => api.get<{ items: Source[]; default_rate_limit: number }>("/platforms"),
     [],
   );
   const s = data?.items.find((x) => x.code === code);
   if (error) return <ErrorBanner error={error} onRetry={reload} />;
-  if (loading && !data) return <Skeleton className="h-96 rounded-2xl" />;
+  if (loading && !data) return <SourcePageSkeleton />;
   if (!s)
     return (
       <EmptyState
@@ -651,11 +752,38 @@ function View() {
         ]}
       />
       {tab === "overview" && <OverviewTab s={s} />}
-      {tab === "api" && <ApiTab s={s} onChanged={reload} />}
+      {tab === "api" && (
+        <ApiTab s={s} onChanged={reload} standardLimit={data?.default_rate_limit} />
+      )}
       {tab === "recordings" && <SourceRecordings code={s.code} />}
-      {tab === "logins" && <LoginsTab code={s.code} />}
+      {tab === "logins" && <LoginsTab code={s.code} onChanged={reload} />}
       {tab === "settings" && <SettingsTab s={s} onChanged={reload} />}
     </>
+  );
+}
+
+/** First load of a source: header, tabs and the overview's cards, at their real size. */
+function SourcePageSkeleton() {
+  return (
+    <div role="status" aria-label="Loading">
+      <Skeleton className="mb-2 h-4 w-28" />
+      <Skeleton className="mb-2 h-8 w-64" />
+      <Skeleton className="mb-6 h-4 w-24" />
+      <div className="mb-6 flex gap-6 border-b border-slate-200 pb-3">
+        {Array.from({ length: 5 }, (_, i) => (
+          <Skeleton key={i} className="h-4 w-20" />
+        ))}
+      </div>
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCardsSkeleton />
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <CardSkeleton />
+        <CardSkeleton>
+          <TableSkeleton cols={3} rows={3} />
+        </CardSkeleton>
+      </div>
+    </div>
   );
 }
 

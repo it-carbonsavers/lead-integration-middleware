@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { apiKeyEnvTag, ConfigError, loadConfig } from "../src/index.js";
+import { apiKeyEnvTag, ConfigError, loadConfig, publicApiUrl } from "../src/index.js";
 
 const key = () => randomBytes(32).toString("base64");
 const dbOnly = { DATABASE_URL: "postgres://u:p@localhost:5432/db" };
@@ -15,6 +15,19 @@ describe("loadConfig", () => {
     expect(c.RATE_LIMIT_PLATFORM_DEFAULT_PER_MIN).toBe(60);
     expect(c.DEFAULT_PHONE_REGION).toBe("AU");
     expect(c.DUPLICATE_WINDOW_DAYS).toBe(30);
+  });
+
+  it("trusts Railway's edge (two entries) unless TRUST_PROXY_HOPS is set", () => {
+    expect(loadConfig({ ...base, RAILWAY_ENVIRONMENT_ID: "env-1" }).TRUST_PROXY_HOPS).toBe(2);
+    expect(
+      loadConfig({ ...base, RAILWAY_ENVIRONMENT_ID: "env-1", TRUST_PROXY_HOPS: "0" })
+        .TRUST_PROXY_HOPS,
+    ).toBe(0);
+    expect(
+      loadConfig({ ...base, RAILWAY_ENVIRONMENT_ID: "env-1", TRUST_PROXY_HOPS: "2" })
+        .TRUST_PROXY_HOPS,
+    ).toBe(2);
+    expect(loadConfig(base).TRUST_PROXY_HOPS).toBe(0);
   });
 
   it("fails without DATABASE_URL and names the variable, not values", () => {
@@ -78,5 +91,58 @@ describe("loadConfig", () => {
     expect(apiKeyEnvTag("staging")).toBe("stg");
     expect(apiKeyEnvTag("local")).toBe("dev");
     expect(apiKeyEnvTag("test")).toBe("test");
+  });
+});
+
+describe("remote SFTP server and bucket in local development", () => {
+  const sftp = {
+    SFTPGO_API_URL: "https://sftpgo-dev.example.com",
+    SFTPGO_ADMIN_USER: "admin",
+    SFTPGO_ADMIN_PASSWORD: "pw",
+    SFTP_PUBLIC_HOST: "sftp.example.com",
+    SFTP_PUBLIC_PORT: "41555",
+    UPLOADS_BUCKET: "b",
+    S3_ENDPOINT: "https://storage.example.com",
+    S3_ACCESS_KEY_ID: "k",
+    S3_SECRET_ACCESS_KEY: "s",
+  };
+  it("is refused locally unless explicitly allowed", () => {
+    expect(() => loadConfig({ ...base, ...sftp, APP_ENV: "local" })).toThrow(/localhost/);
+    expect(
+      loadConfig({ ...base, ...sftp, APP_ENV: "local", ALLOW_REMOTE_SERVICES: "true" })
+        .ALLOW_REMOTE_SERVICES,
+    ).toBe(true);
+  });
+  it("can never be allowed in tests or hosted environments", () => {
+    expect(() =>
+      loadConfig({ ...base, ...sftp, APP_ENV: "test", ALLOW_REMOTE_SERVICES: "true" }),
+    ).toThrow();
+    expect(() =>
+      loadConfig({ ...base, ...sftp, APP_ENV: "staging", ALLOW_REMOTE_SERVICES: "true" }),
+    ).toThrow(/ALLOW_REMOTE_SERVICES/);
+  });
+});
+
+describe("public API address shown to admins", () => {
+  it("uses PUBLIC_API_URL, then Railway's domain, then localhost when local", () => {
+    expect(
+      publicApiUrl(
+        loadConfig({ ...base, PUBLIC_API_URL: "https://api.example.com", APP_ENV: "staging" }),
+      ),
+    ).toBe("https://api.example.com");
+    expect(
+      publicApiUrl(
+        loadConfig({
+          ...base,
+          RAILWAY_PUBLIC_DOMAIN: "api-dev.up.railway.app",
+          APP_ENV: "staging",
+        }),
+      ),
+    ).toBe("https://api-dev.up.railway.app");
+    expect(publicApiUrl(loadConfig({ ...base, APP_ENV: "local", PORT: "3000" }))).toBe(
+      "http://localhost:3000",
+    );
+    expect(publicApiUrl(loadConfig({ ...base, APP_ENV: "staging" }))).toBeNull();
+    expect(() => loadConfig({ ...base, PUBLIC_API_URL: "https://api.example.com/v1" })).toThrow();
   });
 });

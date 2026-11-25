@@ -24,30 +24,36 @@ import {
   useLoad,
 } from "@/components/ui";
 
+const CODE_PATTERN = /^[A-Z][A-Z0-9_]{2,15}$/;
+
 function AddSource({ onClose, onDone }: { onClose: () => void; onDone: (code: string) => void }) {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const [codeError, setCodeError] = useState<string | null>(null);
   return (
     <Modal
       title="Add a lead source"
       description="A provider that will send leads through the API."
       onClose={onClose}
+      busy={busy}
     >
       <ErrorBanner error={error} />
       <form
         className="space-y-4"
         onSubmit={async (e) => {
           e.preventDefault();
-          setBusy(true);
           setError(null);
+          if (!CODE_PATTERN.test(code)) {
+            setCodeError(
+              "Use 3–16 capital letters, digits or _ and start with a letter, e.g. PRV05.",
+            );
+            return;
+          }
+          setBusy(true);
           try {
-            await api.post("/platforms", {
-              organisation: "carbon-savers",
-              code: code.toUpperCase(),
-              display_name: name,
-            });
+            await api.post("/platforms", { code, display_name: name.trim() });
             onDone(code.toUpperCase());
           } catch (err) {
             setError(err);
@@ -65,17 +71,27 @@ function AddSource({ onClose, onDone }: { onClose: () => void; onDone: (code: st
         </Field>
         <Field
           label="Short code"
-          hint="3–16 capital letters or digits, e.g. PRV05. Used in file names and reports."
+          hint={
+            codeError ? (
+              <span className="text-red-600">{codeError}</span>
+            ) : (
+              "3–16 capital letters, digits or _, starting with a letter, e.g. PRV05. Used in file names and reports. Cannot be changed later."
+            )
+          }
         >
           <Input
             required
             value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            aria-invalid={codeError ? true : undefined}
+            onChange={(e) => {
+              setCode(e.target.value.toUpperCase().trim());
+              setCodeError(null);
+            }}
             placeholder="PRV05"
           />
         </Field>
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose}>
+          <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button type="submit" loading={busy}>
@@ -106,9 +122,11 @@ export default function SourcesPage() {
       />
       <ErrorBanner error={error} onRetry={reload} />
       <Card padded={false}>
-        {loading && !data ? (
-          <TableSkeleton rows={4} />
-        ) : !data?.items.length ? (
+        {!data || (loading && !data.items.length) ? (
+          error && !data ? null : (
+            <TableSkeleton cols={6} rows={4} />
+          )
+        ) : !data.items.length ? (
           <EmptyState
             icon={Plug}
             title="No lead sources yet"
@@ -116,6 +134,7 @@ export default function SourcesPage() {
           />
         ) : (
           <Table
+            loading={loading}
             head={
               <tr>
                 <Th>Source</Th>

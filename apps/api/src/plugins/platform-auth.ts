@@ -68,7 +68,13 @@ export function createPlatformAuthenticator(db: Kysely<Database>, config: AuthCo
     }
     if (!isIpAllowed(request.ip, cred.allowed_cidrs)) {
       request.log.warn(
-        { keyPrefix: parsed.prefix, platform: cred.platform_code, ip: request.ip },
+        {
+          keyPrefix: parsed.prefix,
+          platform: cred.platform_code,
+          ip: request.ip,
+          // the proxy chain, to diagnose an allow-list that never matches
+          forwardedFor: request.headers["x-forwarded-for"],
+        },
         "source IP not allowed",
       );
       throw problems.forbidden("Source IP address is not allowed");

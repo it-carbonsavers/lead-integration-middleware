@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import {
   BarChart3,
   FileAudio,
@@ -11,7 +11,7 @@ import {
   Menu,
   Plug,
   Settings,
-  ShieldCheck,
+  TrendingUp,
   UserCircle,
   Users,
   X,
@@ -20,6 +20,8 @@ import {
 import { api, type Me } from "@/lib/api";
 import { canSeeSettings, isProvider, isStaff, MeContext, ROLE_LABEL } from "@/lib/me";
 import { cx, Skeleton } from "@/components/ui";
+import { cacheMe, clearCachedMe, readCachedMe } from "@/lib/session-cache";
+import { BrandLabel, Logo } from "@/components/brand";
 
 interface NavItem {
   href: string;
@@ -59,8 +61,26 @@ const NAV: NavItem[] = [
     icon: BarChart3,
     show: (m) => m.permissions.includes("reports.read"),
   },
+  {
+    href: "/performance",
+    label: "Performance",
+    icon: TrendingUp,
+    show: (m) => isStaff(m) && m.permissions.includes("reports.read"),
+  },
   { href: "/settings", label: "Settings", icon: Settings, show: canSeeSettings },
 ];
+
+/** Where leads go in a non-production environment, shown to staff above every page. */
+function environmentNotice(me: Me): string {
+  if (!me.hubspot_enabled)
+    return "Test environment · leads go to a test destination, nothing is sent to HubSpot.";
+  const sources = me.hubspot_sources ?? [];
+  if (me.hubspot_all_sources)
+    return "Test environment · all leads are sent to the live HubSpot, so only send leads marked TEST.";
+  if (sources.length === 0)
+    return "Test environment · HubSpot is connected but no source sends to it; leads go to a test destination.";
+  return `Test environment · leads from ${sources.join(", ")} are sent to the live HubSpot and must be marked TEST; other leads go to a test destination.`;
+}
 
 function NavLinks({
   items,
@@ -101,25 +121,42 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const pathname = usePathname();
 
-  useEffect(() => {
+  // Draw from the user remembered for this tab before the first paint (one loading state on
+  // refresh, the page's own), then confirm with the server and refresh the remembered copy.
+  useLayoutEffect(() => {
+    const cached = readCachedMe();
+    if (cached) setMe(cached);
     api
       .get<Me>("/auth/me")
-      .then(setMe)
+      .then((m) => {
+        cacheMe(m);
+        setMe(m);
+      })
       .catch(() => {});
   }, []);
 
   if (!me) {
     return (
-      <div className="flex min-h-screen">
-        <div className="hidden w-64 border-r border-slate-200 bg-white p-5 lg:block">
-          <Skeleton className="mb-8 h-8 w-40" />
-          {Array.from({ length: 6 }, (_, i) => (
-            <Skeleton key={i} className="mb-2 h-8 w-full" />
-          ))}
-        </div>
-        <div className="flex-1 p-8">
-          <Skeleton className="mb-6 h-8 w-56" />
-          <Skeleton className="h-40 w-full" />
+      // Same frame as the signed-in layout (sidebar, logo, page header, cards) so nothing jumps.
+      <div className="flex min-h-screen bg-slate-50" role="status" aria-label="Loading">
+        <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
+          <div className="px-3 pb-4 pt-3">
+            <Logo width={136} priority />
+            <Skeleton className="mx-3 mt-1 h-3 w-28" />
+          </div>
+          <div className="space-y-1 px-3">
+            {Array.from({ length: 6 }, (_, i) => (
+              <div key={i} className="flex items-center gap-3 px-3 py-2">
+                <Skeleton className="h-4 w-4" />
+                <Skeleton className="h-3.5 w-28" />
+              </div>
+            ))}
+          </div>
+        </aside>
+        <div className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-10">
+          {/* Only the page title, which every page has; the page's own skeleton follows it. */}
+          <Skeleton className="mb-2 h-8 w-48" />
+          <Skeleton className="mb-6 h-4 w-80 max-w-full" />
         </div>
       </div>
     );
@@ -130,21 +167,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const denied = section !== undefined && !section.show(me) && !pathname.startsWith("/account");
 
   async function signOut() {
+    clearCachedMe();
     await api.post("/auth/logout").catch(() => {});
     window.location.href = "/login";
   }
 
   const brand = (
-    <div className="flex items-center gap-2.5 px-5 py-5">
-      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-600 text-white">
-        <ShieldCheck className="h-5 w-5" />
-      </div>
-      <div>
-        <div className="text-sm font-semibold leading-tight text-slate-900">Lead Integration</div>
-        <div className="text-xs text-slate-500">
-          {isProvider(me) ? `Partner portal · ${me.platform}` : "Admin"}
-        </div>
-      </div>
+    <div className="px-3 pb-4 pt-3">
+      <Link href="/" aria-label="Carbon Savers home">
+        <Logo width={136} priority />
+      </Link>
+      <BrandLabel className="mt-1 px-3">
+        {isProvider(me) ? `Partner portal · ${me.platform}` : "Lead Integration"}
+      </BrandLabel>
     </div>
   );
 
@@ -216,11 +251,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             >
               <Menu className="h-5 w-5" />
             </button>
+            <Logo width={96} />
             <span className="text-sm font-semibold text-slate-900">Lead Integration</span>
           </header>
-          {!isProvider(me) && !me.hubspot_enabled && (
+          {!isProvider(me) && me.environment !== "production" && (
             <div className="border-b border-slate-200 bg-white px-6 py-2 text-xs text-slate-500 lg:px-10">
-              Local review environment · leads go to a test destination, nothing is sent to HubSpot.
+              {environmentNotice(me)}
             </div>
           )}
           <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-10">

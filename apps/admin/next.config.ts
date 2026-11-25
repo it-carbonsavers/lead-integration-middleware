@@ -23,6 +23,9 @@ const csp = [
 const nextConfig: NextConfig = {
   turbopack: { root: path.join(here, "../..") },
   poweredByHeader: false,
+  // Development only: lets the dashboard also be opened at 127.0.0.1 (a separate sign-in from
+  // localhost, e.g. to use an admin and a provider account side by side).
+  allowedDevOrigins: ["127.0.0.1"],
   async redirects() {
     // Earlier page addresses, kept working after the navigation was simplified.
     return [

@@ -9,17 +9,19 @@ import { can, isProvider, useMe } from "@/lib/me";
 import {
   Button,
   Card,
+  CardSkeleton,
   EmptyState,
   ErrorBanner,
   fmtDate,
   KeyValue,
+  KeyValueSkeleton,
   Notice,
   PageHeader,
   Skeleton,
   StatusPill,
   Stepper,
-  useLoad,
   type WorkflowStep,
+  useLoad,
 } from "@/components/ui";
 
 interface LeadDetail {
@@ -90,7 +92,7 @@ const EVENT_LABEL: Record<string, string> = {
 export default function LeadDetailPage() {
   const { ref } = useParams<{ ref: string }>();
   const me = useMe();
-  const { data, error, loading, reload } = useLoad(
+  const { data, error, loading, refreshing, reload } = useLoad(
     () => api.get<LeadDetail>(`/leads/${ref}`),
     [ref],
   );
@@ -99,14 +101,36 @@ export default function LeadDetailPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [showTech, setShowTech] = useState(false);
 
-  if (error) return <ErrorBanner error={error} onRetry={reload} />;
+  if (error && !data) return <ErrorBanner error={error} onRetry={reload} />;
   if (loading && !data) {
+    // Same shape as the page: header, then the recording/delivery/activity column and the
+    // customer/source column.
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-72" />
+      <div role="status" aria-label="Loading">
+        <Skeleton className="mb-2 h-4 w-16" />
+        <Skeleton className="mb-2 h-8 w-72" />
+        <Skeleton className="mb-6 h-4 w-[28rem] max-w-full" />
         <div className="grid gap-6 lg:grid-cols-3">
-          <Skeleton className="h-80 lg:col-span-2" />
-          <Skeleton className="h-80" />
+          <div className="space-y-6 lg:col-span-2">
+            <CardSkeleton>
+              <div className="grid gap-6 md:grid-cols-2">
+                <KeyValueSkeleton rows={5} />
+                <Skeleton className="h-24 rounded-xl" />
+              </div>
+            </CardSkeleton>
+            <CardSkeleton>
+              <KeyValueSkeleton rows={2} />
+            </CardSkeleton>
+            <CardSkeleton />
+          </div>
+          <div className="space-y-6">
+            <CardSkeleton>
+              <KeyValueSkeleton rows={4} />
+            </CardSkeleton>
+            <CardSkeleton>
+              <KeyValueSkeleton rows={6} />
+            </CardSkeleton>
+          </div>
         </div>
       </div>
     );
@@ -129,7 +153,9 @@ export default function LeadDetailPage() {
     try {
       await api.post(`/leads/${ref}/retry`);
       setMessage("Delivery queued again. This page updates in a few seconds.");
-      setTimeout(reload, 3000);
+      // keep the button busy until the new attempt shows, so it is not queued twice
+      await new Promise((r) => setTimeout(r, 3000));
+      await reload();
     } catch (e) {
       setActionError(e);
     }
@@ -154,7 +180,7 @@ export default function LeadDetailPage() {
           ) : null
         }
       />
-      <ErrorBanner error={actionError} />
+      <ErrorBanner error={actionError ?? error} onRetry={error ? reload : undefined} />
       {message && (
         <Notice tone="success" onClose={() => setMessage(null)}>
           {message}
@@ -179,6 +205,7 @@ export default function LeadDetailPage() {
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Card
+            loading={refreshing}
             title="Consent recording"
             description="From the call to a matched, stored recording"
             actions={<StatusPill status={d.consent.status} />}
@@ -232,6 +259,7 @@ export default function LeadDetailPage() {
 
           <Card
             title="Delivery"
+            loading={refreshing}
             description={d.destination ? `To ${d.destination.name}` : undefined}
             actions={<StatusPill status={d.status} />}
           >
@@ -266,7 +294,7 @@ export default function LeadDetailPage() {
             )}
           </Card>
 
-          <Card title="Activity">
+          <Card title="Activity" loading={refreshing}>
             <ol className="relative space-y-4 border-l border-slate-200 pl-5">
               {d.events.map((e) => (
                 <li key={e.id} className="relative">

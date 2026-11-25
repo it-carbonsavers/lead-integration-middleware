@@ -3,7 +3,8 @@
  *
  * Boots pg-boss, creates the queues and their retry/dead-letter policies, and runs:
  *   deliver-lead (Destination Integration Layer), recordings-scan (uploads to our SFTP server),
- *   recordings-maintenance, sync-consent, retention-purge, and a one-minute heartbeat.
+ *   recordings-maintenance, sync-consent, retention-purge, sync-outcomes (every 15 minutes,
+ *   read-only, off unless OUTCOME_SYNC_ENABLED) and a one-minute heartbeat.
  */
 
 import pino from "pino";
@@ -13,6 +14,7 @@ import { createDb, touchServiceStatus } from "@lim/db";
 import { createBoss, ensureQueues, type DeliverLeadJob } from "@lim/jobs";
 import { prepareObjectStorage, recordingStore, sftpRuntime } from "@lim/recordings";
 import { deliverLead } from "./handlers/deliver-lead.js";
+import { runOutcomeSync } from "./handlers/outcomes.js";
 import {
   runMaintenance,
   runRecordingsScan,
@@ -81,6 +83,16 @@ async function main(): Promise<void> {
       for (const j of jobs) await syncConsent(rec, j.data.leadId);
     },
   );
+  // --- Lead outcomes (read-only from HubSpot) --------------------------------------
+  if (config.OUTCOME_SYNC_ENABLED) {
+    await boss.schedule(QUEUES.syncOutcomes.name, "*/15 * * * *", null, { tz: "UTC" });
+  } else {
+    await boss.unschedule(QUEUES.syncOutcomes.name);
+  }
+  await boss.work(QUEUES.syncOutcomes.name, { batchSize: 1, localConcurrency: 1 }, async () => {
+    await runOutcomeSync({ db, config, log });
+  });
+
   await boss.work(QUEUES.heartbeat.name, async (jobs) => {
     log.info({ jobs: jobs.length }, "worker heartbeat");
     await touchServiceStatus(db, "worker", { hubspot_enabled: config.HUBSPOT_ENABLED });
@@ -120,7 +132,11 @@ async function main(): Promise<void> {
   );
 
   log.info(
-    { hubspotEnabled: config.HUBSPOT_ENABLED, concurrency: config.DELIVERY_CONCURRENCY },
+    {
+      hubspotEnabled: config.HUBSPOT_ENABLED,
+      outcomeSync: config.OUTCOME_SYNC_ENABLED,
+      concurrency: config.DELIVERY_CONCURRENCY,
+    },
     "worker started",
   );
 

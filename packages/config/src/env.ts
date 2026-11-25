@@ -28,6 +28,17 @@ export const envSchema = z
     APP_ENV: z.enum(["local", "test", "staging", "production"]).default("local"),
     PORT: intFromEnv(3000, 1, 65535),
     HOST: z.string().min(1).default("0.0.0.0"),
+    /**
+     * Public address of this API, shown to admins so they can give it to lead providers,
+     * e.g. https://api.example.com. Defaults to the domain Railway assigns (RAILWAY_PUBLIC_DOMAIN),
+     * or http://localhost:<PORT> in local development.
+     */
+    PUBLIC_API_URL: z
+      .string()
+      .regex(/^https?:\/\/[^/]+$/, "scheme and host only, e.g. https://api.example.com")
+      .optional(),
+    /** Set automatically by Railway on services with a public domain. */
+    RAILWAY_PUBLIC_DOMAIN: z.string().optional(),
     LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
 
     DATABASE_URL: z
@@ -38,10 +49,17 @@ export const envSchema = z
     DATABASE_SSL: z.enum(["disable", "require", "no-verify"]).default("disable"),
 
     /**
-     * Number of reverse proxies in front of the service (Railway edge = 1).
-     * Used to read the real client IP from X-Forwarded-For without trusting spoofed entries.
+     * Number of trusted proxy entries to skip when reading the real client IP from the socket and
+     * X-Forwarded-For, so entries a caller adds to that header themselves are never used.
+     * When unset: 2 on Railway (detected from RAILWAY_ENVIRONMENT_ID), otherwise 0. Railway's edge
+     * appends its own address to X-Forwarded-For ("<client>, <edge>") and then connects from that
+     * same address, so both the socket and the last header entry are Railway's. Without it on
+     * Railway every request appears to come from Railway's proxy, which breaks IP allow-lists, puts
+     * all callers in one per-IP rate limit and records the proxy in the audit log.
      */
     TRUST_PROXY_HOPS: intFromEnv(0, 0, 5),
+    /** Set by Railway on every service; used only to choose safe defaults (see TRUST_PROXY_HOPS). */
+    RAILWAY_ENVIRONMENT_ID: z.string().optional(),
     BODY_LIMIT_BYTES: intFromEnv(65_536, 1_024, 1_048_576),
 
     /** Per-client-IP request ceiling on the provider API (applies before authentication). */
@@ -84,6 +102,32 @@ export const envSchema = z
       .enum(["true", "false"])
       .default("false")
       .transform((v) => v === "true"),
+    // --- Lead outcomes (performance reporting) -------------------------------------
+    /**
+     * Read what happened to delivered leads from HubSpot every 15 minutes (read-only). Default off.
+     * Only leads in this environment's own database are looked up.
+     */
+    OUTCOME_SYNC_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
+    /** Leads received within this many days keep being refreshed. */
+    OUTCOME_SYNC_WINDOW_DAYS: intFromEnv(180, 1, 730),
+    /** Most leads refreshed per run (oldest refresh first). */
+    OUTCOME_SYNC_BATCH: intFromEnv(500, 1, 5_000),
+    /** Deal pipelines whose name matches (case-insensitive) count as a sale. */
+    OUTCOME_SOLD_PIPELINES: z
+      .string()
+      .min(1)
+      .refine((v) => {
+        try {
+          new RegExp(v, "i");
+          return true;
+        } catch {
+          return false;
+        }
+      }, "must be a valid regular expression")
+      .default("assessment|installation"),
     // --- Consent recordings and SFTP (Phase 5) -----------------------------------
     /** Absolute directory for encrypted recording files (local stand-in for private object storage). */
     RECORDING_STORAGE_DIR: absolutePath.optional(),
@@ -102,6 +146,14 @@ export const envSchema = z
     /** Address providers connect to (Railway: the SFTPGo service's TCP proxy host and port). */
     SFTP_PUBLIC_HOST: z.string().optional(),
     SFTP_PUBLIC_PORT: z.coerce.number().int().min(1).max(65535).optional(),
+    /**
+     * Local development only: allow SFTPGO_API_URL and S3_ENDPOINT to point at a remote (e.g. Railway
+     * development) SFTP server and bucket. Off by default; rejected unless APP_ENV is local.
+     */
+    ALLOW_REMOTE_SERVICES: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
     /** SFTPGo admin REST API (Railway: private network address, e.g. http://sftpgo.railway.internal:8080). */
     SFTPGO_API_URL: z
       .string()
@@ -218,8 +270,15 @@ export const envSchema = z
         path: ["UPLOADS_PREFIX"],
         message: 'must be set (e.g. "uploads/") when uploads and recordings share one bucket',
       });
-    // Local development and tests must never reach a real (e.g. Railway) SFTP server or bucket.
-    if (env.APP_ENV === "local" || env.APP_ENV === "test") {
+    // Local development and tests must never reach a real (e.g. Railway) SFTP server or bucket,
+    // unless a developer deliberately opts in (local only, never in tests).
+    if (env.ALLOW_REMOTE_SERVICES && env.APP_ENV !== "local")
+      ctx.addIssue({
+        code: "custom",
+        path: ["ALLOW_REMOTE_SERVICES"],
+        message: "may only be set when APP_ENV is local",
+      });
+    if ((env.APP_ENV === "local" && !env.ALLOW_REMOTE_SERVICES) || env.APP_ENV === "test") {
       for (const n of ["SFTPGO_API_URL", "S3_ENDPOINT"] as const) {
         const v = env[n];
         if (v && !isLocalUrl(v))
@@ -264,6 +323,14 @@ function isPrivateNetworkHost(databaseUrl: string): boolean {
 
 export type Env = z.infer<typeof envSchema>;
 
+/** The API's public base address for providers, or null when it cannot be known. */
+export function publicApiUrl(env: Env): string | null {
+  if (env.PUBLIC_API_URL) return env.PUBLIC_API_URL;
+  if (env.RAILWAY_PUBLIC_DOMAIN) return `https://${env.RAILWAY_PUBLIC_DOMAIN}`;
+  if (env.APP_ENV === "local" || env.APP_ENV === "test") return `http://localhost:${env.PORT}`;
+  return null;
+}
+
 export class ConfigError extends Error {
   constructor(public readonly problems: string[]) {
     super(`Invalid configuration:\n  - ${problems.join("\n  - ")}`);
@@ -280,6 +347,12 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Env {
   const cleaned = Object.fromEntries(
     Object.entries(source).filter(([, v]) => v !== undefined && v !== ""),
   );
+  // On Railway the socket address and the last X-Forwarded-For entry are both Railway's edge
+  // (observed: "X-Forwarded-For: <client>, <edge>" from <edge>). Skip exactly those two unless the
+  // deployment sets TRUST_PROXY_HOPS itself.
+  if (cleaned.TRUST_PROXY_HOPS === undefined && cleaned.RAILWAY_ENVIRONMENT_ID !== undefined) {
+    cleaned.TRUST_PROXY_HOPS = "2";
+  }
   const result = envSchema.safeParse(cleaned);
   if (!result.success) {
     throw new ConfigError(

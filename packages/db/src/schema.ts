@@ -286,7 +286,8 @@ export interface ConsentRecordingsTable {
   sha256: Buffer;
   status: RecordingStatus;
   rejection_reason: string | null;
-  matched_by: "recording_ref" | "naming_convention" | "external_lead_id" | "admin" | null;
+  matched_by:
+    "recording_ref" | "naming_convention" | "external_lead_id" | "admin" | "uploader" | null;
   matched_at: Date | null;
   retention_until: Date;
   created_at: CreatedAt;
@@ -295,7 +296,7 @@ export interface ConsentRecordingsTable {
 export interface TransferJobsTable {
   id: Generated<string>;
   platform_id: string;
-  mode: "sftp_hosted" | "sftp_pull";
+  mode: "sftp_hosted" | "sftp_pull" | "portal_upload";
   remote_path: string;
   remote_size: ColumnType<string, number | string, number | string>;
   remote_mtime: Date;
@@ -305,6 +306,34 @@ export interface TransferJobsTable {
   error_code: string | null;
   started_at: CreatedAt;
   finished_at: Date | null;
+}
+
+export interface LeadOutcomesTable {
+  lead_id: string;
+  hubspot_lead_id: string;
+  missing: Generated<boolean>;
+  lead_stage_id: string | null;
+  lead_stage: string | null;
+  lead_stage_changed_at: Date | null;
+  disqualification_reason: string | null;
+  calls_attempted: Generated<number>;
+  calls_connected: Generated<number>;
+  deal_count: Generated<number>;
+  deal_id: string | null;
+  deal_pipeline: string | null;
+  deal_stage: string | null;
+  deal_created_at: Date | null;
+  proposal_sent_at: Date | null;
+  proposal_status: string | null;
+  lost: Generated<boolean>;
+  lost_reason: string | null;
+  sold: Generated<boolean>;
+  sold_at: Date | null;
+  /** numeric: returned as a string by node-postgres. */
+  sale_value: ColumnType<string | null, number | string | null, number | string | null>;
+  sale_value_field: "total_amount" | "amount" | null;
+  synced_at: Timestamp;
+  created_at: CreatedAt;
 }
 
 export interface ServiceStatusTable {
@@ -335,9 +364,11 @@ export interface Database {
   consent_recordings: ConsentRecordingsTable;
   transfer_jobs: TransferJobsTable;
   service_status: ServiceStatusTable;
+  lead_outcomes: LeadOutcomesTable;
 }
 
 export type Organisation = Selectable<OrganisationsTable>;
+export type LeadOutcome = Selectable<LeadOutcomesTable>;
 export type Platform = Selectable<PlatformsTable>;
 export type NewPlatform = Insertable<PlatformsTable>;
 export type PlatformUpdate = Updateable<PlatformsTable>;

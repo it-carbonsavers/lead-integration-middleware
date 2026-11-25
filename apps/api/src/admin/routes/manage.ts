@@ -31,6 +31,7 @@ import { actorOf, generatePassword, hashPassword, requirePermission } from "../a
 import { dayEnd, dayStart } from "../lead-query.js";
 import { syncSftpAccount } from "@lim/recordings";
 import type { AdminRouteOptions } from "./index.js";
+import { hubspotRouting } from "../hubspot-routing.js";
 
 const cidr = z.string().refine((c) => {
   const [addr, bits] = c.split("/");
@@ -99,13 +100,31 @@ export async function adminManageRoutes(app: FastifyInstance, opts: AdminRouteOp
     return { items: rows, default_rate_limit: config.RATE_LIMIT_PLATFORM_DEFAULT_PER_MIN };
   });
 
+  /** The organisation a new source belongs to: as given, else the admin's own, else the only one. */
+  async function resolveOrganisation(slug: string | undefined, adminOrgId: string | null) {
+    if (slug) {
+      const org = await db
+        .selectFrom("organisations")
+        .select("id")
+        .where("slug", "=", slug)
+        .executeTakeFirst();
+      if (!org) throw problems.validation([{ path: "organisation", code: "not_found" }]);
+      return org;
+    }
+    if (adminOrgId) return { id: adminOrgId };
+    const orgs = await db.selectFrom("organisations").select("id").limit(2).execute();
+    if (orgs.length !== 1) throw problems.validation([{ path: "organisation", code: "required" }]);
+    return orgs[0]!;
+  }
+
   r.post(
     "/platforms",
     {
       preHandler: platformsPerm,
       schema: {
         body: z.strictObject({
-          organisation: z.string().min(1),
+          /** Organisation slug. Optional: defaults to the admin's organisation, or the only one. */
+          organisation: z.string().min(1).optional(),
           code: z
             .string()
             .regex(/^[A-Z][A-Z0-9_]{2,15}$/, "3-16 chars: A-Z, 0-9, _ (start with a letter)"),
@@ -116,12 +135,7 @@ export async function adminManageRoutes(app: FastifyInstance, opts: AdminRouteOp
       },
     },
     async (req, reply) => {
-      const org = await db
-        .selectFrom("organisations")
-        .select("id")
-        .where("slug", "=", req.body.organisation)
-        .executeTakeFirst();
-      if (!org) throw problems.validation([{ path: "organisation", code: "not_found" }]);
+      const org = await resolveOrganisation(req.body.organisation, req.admin!.organisationId);
       const exists = await db
         .selectFrom("platforms")
         .select("id")
@@ -531,7 +545,12 @@ export async function adminManageRoutes(app: FastifyInstance, opts: AdminRouteOp
 
   // --- Destinations ------------------------------------------------------------
   const destPerm = requirePermission("destinations.manage", { internalOnly: true });
+  const hubspotRoutingFields = async () => {
+    const r = await hubspotRouting(db, config);
+    return { hubspot_enabled: r.enabled, hubspot_sources: r.sources };
+  };
   r.get("/destinations", { preHandler: destPerm }, async () => ({
+    ...(await hubspotRoutingFields()),
     items: (await listDestinations(db)).map((d) => ({
       id: d.id,
       name: d.name,
@@ -542,7 +561,6 @@ export async function adminManageRoutes(app: FastifyInstance, opts: AdminRouteOp
       credential_ref: d.credential_ref,
       credential_present: d.type === "mock" ? true : Boolean(process.env[d.credential_ref]),
     })),
-    hubspot_enabled: config.HUBSPOT_ENABLED,
   }));
 
   r.post(

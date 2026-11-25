@@ -155,6 +155,8 @@ export function serverHostKeyFingerprint(
   host: string,
   port: number,
   timeoutMs = 3_000,
+  /** Only accept these host-key algorithms (to read one specific key of several). */
+  algorithms?: string[],
 ): Promise<string | null> {
   return new Promise((resolve) => {
     const c = new ssh2.Client();
@@ -173,6 +175,7 @@ export function serverHostKeyFingerprint(
       port,
       username: "fingerprint-check",
       readyTimeout: timeoutMs,
+      ...(algorithms ? { algorithms: { serverHostKey: algorithms } } : {}),
       hostVerifier: (key: Buffer, verify: (ok: boolean) => void) => {
         void sshFingerprint(key).then((f) => {
           fp = f;
@@ -181,6 +184,35 @@ export function serverHostKeyFingerprint(
       },
     } as ssh2.ConnectConfig);
   });
+}
+
+export interface HostKeyFingerprint {
+  type: "ED25519" | "ECDSA" | "RSA";
+  fingerprint: string;
+}
+
+const HOST_KEY_TYPES: [HostKeyFingerprint["type"], string[]][] = [
+  ["ED25519", ["ssh-ed25519"]],
+  ["ECDSA", ["ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521"]],
+  ["RSA", ["rsa-sha2-512", "rsa-sha2-256", "ssh-rsa"]],
+];
+
+/**
+ * Every host key an SSH server offers (servers usually have several types). An SFTP client
+ * picks one of them, so providers need all fingerprints, labelled, to check the one they see.
+ */
+export async function serverHostKeyFingerprints(
+  host: string,
+  port: number,
+  timeoutMs = 3_000,
+): Promise<HostKeyFingerprint[]> {
+  const found = await Promise.all(
+    HOST_KEY_TYPES.map(async ([type, algs]) => {
+      const fingerprint = await serverHostKeyFingerprint(host, port, timeoutMs, algs);
+      return fingerprint ? { type, fingerprint } : null;
+    }),
+  );
+  return found.filter((f): f is HostKeyFingerprint => f !== null);
 }
 
 /**

@@ -20,7 +20,7 @@ pg.types.setTypeParser(INET_ARRAY, parseTextArray);
 export type DbConfig = Pick<Env, "DATABASE_URL" | "DATABASE_POOL_MAX" | "DATABASE_SSL">;
 
 export function createPool(cfg: DbConfig): pg.Pool {
-  return new pg.Pool({
+  const pool = new pg.Pool({
     connectionString: cfg.DATABASE_URL,
     max: cfg.DATABASE_POOL_MAX,
     ssl:
@@ -29,8 +29,26 @@ export function createPool(cfg: DbConfig): pg.Pool {
         : { rejectUnauthorized: cfg.DATABASE_SSL === "require" },
     application_name: "lead-integration-middleware",
     statement_timeout: 15_000,
-    connectionTimeoutMillis: 5_000,
+    connectionTimeoutMillis: 10_000,
+    // Keeps connections through proxies and NAT from being silently dropped.
+    keepAlive: true,
   });
+  // A connection dropped while idle (network blip, database restart) must not crash the
+  // process: the pool discards it and opens a new one on the next query.
+  pool.on("error", (err) => {
+    console.error(`database: idle connection closed (${err.message})`);
+  });
+  // The pool only listens for errors on idle connections: it removes its listener while a
+  // connection is checked out (Kysely holds one for every query and transaction). A connection
+  // whose network drops at that moment emits 'error' with nobody listening, and Node exits.
+  // This listener stays on every connection for its whole life. The query that was running still
+  // fails normally, and the pool discards the dead connection when it is released.
+  pool.on("connect", (client) => {
+    client.on("error", (err) => {
+      console.error(`database: connection lost while in use (${err.message})`);
+    });
+  });
+  return pool;
 }
 
 export function createDb(cfg: DbConfig): Kysely<Database> {

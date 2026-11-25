@@ -130,8 +130,9 @@ describe("file rules", () => {
 
   it("detects real audio content", () => {
     expect(detectAudio(makeTestWav(0.1))).toBe("wav");
+    // ID3v2.4 tag of size 0, then an MPEG-1 Layer III frame header (128 kbit/s, 44.1 kHz).
     expect(
-      detectAudio(Buffer.from("ID3\u0004\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000")),
+      detectAudio(Buffer.from([0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0, 0, 0xff, 0xfb, 0x90, 0x64])),
     ).toBe("mp3");
     expect(detectAudio(Buffer.from("<html><body>not audio</body></html>"))).toBeNull();
   });

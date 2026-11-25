@@ -2,24 +2,18 @@
 
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
-import { Card, CopyValue, KeyValue } from "@/components/ui";
+import { ProviderApiDetails } from "@/components/api-details";
+import { Card, KeyValue } from "@/components/ui";
 
 export default function ApiSettingsPage() {
-  const base =
-    typeof window !== "undefined"
-      ? `${window.location.protocol}//${window.location.hostname}:3000`
-      : "http://localhost:3000";
   return (
     <div className="space-y-6">
+      <ProviderApiDetails title="API address" />
       <Card
         title="Lead submission API"
         description="What lead sources use to send leads. Each source has its own key (Lead Sources → API access)."
       >
         <div className="space-y-4">
-          <div>
-            <div className="mb-1 text-xs text-slate-500">API address</div>
-            <CopyValue value={`${base}/v1/leads`} />
-          </div>
           <KeyValue
             items={[
               { label: "Authentication", value: "Per-source API key (Bearer token)" },

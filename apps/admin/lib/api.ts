@@ -20,6 +20,8 @@ export class ApiError extends Error {
   }
 }
 
+import { clearCachedMe } from "./session-cache";
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/admin-api${path}`, {
     method,
@@ -33,6 +35,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     cache: "no-store",
   });
   if (res.status === 401 && !path.startsWith("/auth/login") && typeof window !== "undefined") {
+    clearCachedMe();
     const next = encodeURIComponent(window.location.pathname + window.location.search);
     window.location.href = `/login?next=${next}`;
   }
@@ -68,6 +71,9 @@ export interface Me {
   permissions: string[];
   environment: string;
   hubspot_enabled: boolean;
+  /** Staff only: provider codes whose leads go to HubSpot. */
+  hubspot_sources?: string[];
+  hubspot_all_sources?: boolean;
 }
 
 export interface Paged<T> {

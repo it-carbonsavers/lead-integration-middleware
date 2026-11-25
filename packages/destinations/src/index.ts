@@ -10,8 +10,10 @@ import type { Database, Destination } from "@lim/db";
 import { HubSpotAdapter, type FetchLike } from "./hubspot/adapter.js";
 import { hubSpotConfigSchema } from "./hubspot/mapping.js";
 import { MockDestinationAdapter } from "./mock/adapter.js";
+import { HubSpotOutcomeReader } from "./hubspot/outcomes.js";
 
 export { HubSpotAdapter, type FetchLike } from "./hubspot/adapter.js";
+export * from "./hubspot/outcomes.js";
 export { MockDestinationAdapter } from "./mock/adapter.js";
 export * from "./hubspot/mapping.js";
 
@@ -63,4 +65,23 @@ export function createAdapter(destination: Destination, deps: AdapterDeps): Dest
         "Unknown destination type",
       );
   }
+}
+
+/**
+ * Read-only outcome reader for a HubSpot destination (null for other destination types).
+ * Refuses to call HubSpot unless HUBSPOT_ENABLED is true, like the adapter.
+ */
+export function createOutcomeReader(
+  destination: Destination,
+  deps: Omit<AdapterDeps, "db">,
+): HubSpotOutcomeReader | null {
+  if (destination.type !== "hubspot") return null;
+  return new HubSpotOutcomeReader({
+    enabled: deps.config.HUBSPOT_ENABLED,
+    baseUrl: deps.config.HUBSPOT_BASE_URL,
+    token: (deps.env ?? process.env)[destination.credential_ref],
+    soldPipelinePattern: new RegExp(deps.config.OUTCOME_SOLD_PIPELINES, "i"),
+    ...(deps.fetch ? { fetch: deps.fetch } : {}),
+    ...(deps.sleep ? { sleep: deps.sleep } : {}),
+  });
 }
