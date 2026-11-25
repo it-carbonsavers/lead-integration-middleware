@@ -137,8 +137,14 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
       .where("name", "=", "outcome-sync")
       .executeTakeFirst();
     const detail = (s?.detail ?? {}) as { status?: string; dealsUnreadable?: string | null };
+    // The sync runs in the worker: its setting (reported on every heartbeat) is what counts.
+    const worker = await db
+      .selectFrom("service_status")
+      .select(sql<boolean | null>`(detail->>'outcome_sync_enabled')::boolean`.as("on"))
+      .where("name", "=", "worker")
+      .executeTakeFirst();
     return {
-      enabled: config.OUTCOME_SYNC_ENABLED,
+      enabled: config.OUTCOME_SYNC_ENABLED || worker?.on === true,
       last_run_at: s?.last_seen_at ?? null,
       deals_unreadable: detail.dealsUnreadable ?? null,
     };

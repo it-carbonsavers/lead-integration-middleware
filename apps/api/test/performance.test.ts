@@ -268,4 +268,15 @@ describe("environment notice routing", () => {
       hubspot_all_sources: false,
     });
   });
+
+  it("reports the outcome sync as on when the worker has it on", async () => {
+    const sync = async () => (await get(staff, "/performance/summary")).json().sync;
+    expect(await sync()).toMatchObject({ enabled: false });
+    await t.db
+      .updateTable("service_status")
+      .set({ detail: JSON.stringify({ outcome_sync_enabled: true }) })
+      .where("name", "=", "worker")
+      .execute();
+    expect(await sync()).toMatchObject({ enabled: true });
+  });
 });
