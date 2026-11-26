@@ -60,6 +60,19 @@ export interface CompanyLead {
   limLeadRef: string | null;
 }
 
+/** The contact details of a HubSpot contact (for leads imported from HubSpot). */
+export interface ContactDetails {
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  postcode: string | null;
+  country: string | null;
+}
+
 export interface OutcomeReadResult {
   outcomes: LeadOutcomeRead[];
   /** Deals could not be read (for example the key lacks the deals read scope). */
@@ -214,6 +227,43 @@ export class HubSpotOutcomeReader {
     return found;
   }
 
+  /** Contact details for these contact ids (read-only batch read). Missing contacts are left out. */
+  async readContacts(contactIds: string[]): Promise<Map<string, ContactDetails>> {
+    this.client.guard();
+    const out = new Map<string, ContactDetails>();
+    const rows = await this.batchRead(
+      "contacts",
+      [...new Set(contactIds)],
+      [
+        "firstname",
+        "lastname",
+        "email",
+        "phone",
+        "mobilephone",
+        "address",
+        "city",
+        "state",
+        "zip",
+        "country",
+      ],
+    );
+    for (const [id, o] of rows) {
+      const p = o.properties;
+      out.set(id, {
+        firstName: text(p["firstname"]),
+        lastName: text(p["lastname"]),
+        email: text(p["email"]),
+        phone: text(p["mobilephone"]) ?? text(p["phone"]),
+        address: text(p["address"]),
+        city: text(p["city"]),
+        state: text(p["state"]),
+        postcode: text(p["zip"]),
+        country: text(p["country"]),
+      });
+    }
+    return out;
+  }
+
   private async creditedDeals(
     lookups: OutcomeLookup[],
     existingLeads: Set<string>,
@@ -274,7 +324,7 @@ export class HubSpotOutcomeReader {
   }
 
   private async batchRead(
-    objectType: "leads" | "deals",
+    objectType: "leads" | "deals" | "contacts",
     ids: string[],
     properties: string[],
   ): Promise<Map<string, HsObject>> {

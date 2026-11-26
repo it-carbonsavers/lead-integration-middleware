@@ -27,6 +27,7 @@ import {
 interface LeadDetail {
   lead_ref: string;
   external_lead_id: string;
+  origin: "api" | "hubspot_import";
   platform: { code: string; name: string };
   agent: { id: string; external_agent_id: string; name: string | null } | null;
   status: string;
@@ -137,6 +138,7 @@ export default function LeadDetailPage() {
   }
   if (!data) return null;
   const d = data;
+  const imported = d.origin === "hubspot_import";
   const c = d.customer;
   const failed = d.status === "failed" || d.status === "dead_letter";
 
@@ -204,95 +206,109 @@ export default function LeadDetailPage() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
-          <Card
-            loading={refreshing}
-            title="Consent recording"
-            description="From the call to a matched, stored recording"
-            actions={<StatusPill status={d.consent.status} />}
-          >
-            <div className="grid gap-6 md:grid-cols-2">
-              <Stepper steps={d.consent_workflow} />
-              <div>
-                <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Recording files
-                </h3>
-                {d.recordings.length === 0 ? (
-                  <EmptyState
-                    icon={FileAudio}
-                    title={
-                      d.consent.verbal_consent ? "No recording received yet" : "No recording needed"
-                    }
-                    text={
-                      d.consent.verbal_consent
-                        ? "It appears here automatically once the source delivers it."
-                        : "No verbal consent was captured on the call."
-                    }
-                  />
-                ) : (
-                  <ul className="space-y-3">
-                    {d.recordings.map((r) => (
-                      <li key={r.id} className="rounded-xl border border-slate-200 p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="truncate text-sm font-medium text-slate-900">
-                            {r.original_filename}
-                          </span>
-                          <StatusPill status={r.status} />
-                        </div>
-                        <div className="mt-0.5 text-xs text-slate-500">
-                          Received {fmtDate(r.created_at)}
-                        </div>
-                        {can(me, "recordings.play") && r.status !== "deleted" && (
-                          <audio
-                            controls
-                            preload="none"
-                            className="mt-2 h-9 w-full"
-                            src={`/admin-api/recordings/${r.id}/audio`}
-                          />
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
+          {imported ? (
+            <Card title="Imported from HubSpot">
+              <p className="text-sm text-slate-600">
+                This lead was already in HubSpot before the integration. It was read from HubSpot so
+                its calls, deals and sales count in Performance. Its consent recording and delivery
+                are not tracked here, and the contact details are kept in step with HubSpot.
+              </p>
+            </Card>
+          ) : (
+            <Card
+              loading={refreshing}
+              title="Consent recording"
+              description="From the call to a matched, stored recording"
+              actions={<StatusPill status={d.consent.status} />}
+            >
+              <div className="grid gap-6 md:grid-cols-2">
+                <Stepper steps={d.consent_workflow} />
+                <div>
+                  <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Recording files
+                  </h3>
+                  {d.recordings.length === 0 ? (
+                    <EmptyState
+                      icon={FileAudio}
+                      title={
+                        d.consent.verbal_consent
+                          ? "No recording received yet"
+                          : "No recording needed"
+                      }
+                      text={
+                        d.consent.verbal_consent
+                          ? "It appears here automatically once the source delivers it."
+                          : "No verbal consent was captured on the call."
+                      }
+                    />
+                  ) : (
+                    <ul className="space-y-3">
+                      {d.recordings.map((r) => (
+                        <li key={r.id} className="rounded-xl border border-slate-200 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-sm font-medium text-slate-900">
+                              {r.original_filename}
+                            </span>
+                            <StatusPill status={r.status} />
+                          </div>
+                          <div className="mt-0.5 text-xs text-slate-500">
+                            Received {fmtDate(r.created_at)}
+                          </div>
+                          {can(me, "recordings.play") && r.status !== "deleted" && (
+                            <audio
+                              controls
+                              preload="none"
+                              className="mt-2 h-9 w-full"
+                              src={`/admin-api/recordings/${r.id}/audio`}
+                            />
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
-            </div>
-          </Card>
+            </Card>
+          )}
 
-          <Card
-            title="Delivery"
-            loading={refreshing}
-            description={d.destination ? `To ${d.destination.name}` : undefined}
-            actions={<StatusPill status={d.status} />}
-          >
-            {d.attempts.length === 0 ? (
-              <p className="text-sm text-slate-500">Waiting to be delivered.</p>
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {d.attempts.map((a) => (
-                  <li
-                    key={a.attempt_no}
-                    className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm"
-                  >
-                    <span className="text-slate-700">
-                      Attempt {a.attempt_no} · {fmtDate(a.started_at)}
-                    </span>
-                    {a.status === "success" ? (
-                      <StatusPill status="delivered" />
-                    ) : (
-                      <span className="flex items-center gap-2">
-                        {a.error_message && (
-                          <span className="text-xs text-slate-500">{a.error_message}</span>
-                        )}
-                        <StatusPill
-                          label={a.status === "in_progress" ? "In progress" : "Failed"}
-                          tone={a.status === "in_progress" ? "blue" : "red"}
-                        />
+          {!imported && (
+            <Card
+              title="Delivery"
+              loading={refreshing}
+              description={d.destination ? `To ${d.destination.name}` : undefined}
+              actions={<StatusPill status={d.status} />}
+            >
+              {d.attempts.length === 0 ? (
+                <p className="text-sm text-slate-500">Waiting to be delivered.</p>
+              ) : (
+                <ul className="divide-y divide-slate-100">
+                  {d.attempts.map((a) => (
+                    <li
+                      key={a.attempt_no}
+                      className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm"
+                    >
+                      <span className="text-slate-700">
+                        Attempt {a.attempt_no} · {fmtDate(a.started_at)}
                       </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
+                      {a.status === "success" ? (
+                        <StatusPill status="delivered" />
+                      ) : (
+                        <span className="flex items-center gap-2">
+                          {a.error_message && (
+                            <span className="text-xs text-slate-500">{a.error_message}</span>
+                          )}
+                          <StatusPill
+                            label={a.status === "in_progress" ? "In progress" : "Failed"}
+                            tone={a.status === "in_progress" ? "blue" : "red"}
+                          />
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          )}
 
           <Card title="Activity" loading={refreshing}>
             <ol className="relative space-y-4 border-l border-slate-200 pl-5">

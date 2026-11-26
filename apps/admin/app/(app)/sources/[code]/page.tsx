@@ -639,7 +639,7 @@ function HubSpotImportCard({ s, onChanged }: { s: Source; onChanged: () => Promi
   return (
     <Card
       title="Existing leads in HubSpot"
-      description="Report on leads this provider sent before the integration. They are read from HubSpot (nothing there is changed) and no personal details are copied."
+      description="Report on leads this provider sent before the integration. They are read from HubSpot (nothing there is changed), with their contact details kept in step with HubSpot."
     >
       <ErrorBanner error={error} />
       <div className="flex flex-wrap items-end gap-3">

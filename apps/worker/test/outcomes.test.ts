@@ -1,7 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "kysely";
-import { createDestination, createOrganisation, createPlatform, type Actor } from "@lim/db";
+import {
+  createDestination,
+  createOrganisation,
+  createPlatform,
+  decryptLeadPii,
+  phoneIndex,
+  type Actor,
+} from "@lim/db";
 import { runOutcomeSync } from "../src/handlers/outcomes.js";
 import { createTestDatabase, testConfig, type TestDatabase } from "../../../test/helpers.js";
 import { FakeHubSpotCrm } from "../../../test/fake-hubspot-crm.js";
@@ -185,7 +192,7 @@ describe("runOutcomeSync", () => {
 });
 
 describe("importing existing HubSpot leads for a source", () => {
-  it("adds leads matching the source's Lead Company once, without personal data, and syncs them", async () => {
+  it("adds leads matching the source's Lead Company once, with their contact details, and syncs them", async () => {
     const code = "IMP01";
     const p = await createPlatform(
       t.db,
@@ -217,6 +224,15 @@ describe("importing existing HubSpot leads for a source", () => {
       hs_createdate: new Date().toISOString(),
     });
     fake.leadContacts.set("901", ["9010"]);
+    fake.contacts.set("9010", {
+      firstname: "Test",
+      lastname: "Person",
+      mobilephone: "0491 570 006",
+      email: "Test.Person@Example.com",
+      state: "VIC",
+      zip: "3000",
+      country: "Australia",
+    });
     fake.deals.set("950", {
       pipeline: "p-assess",
       dealstage: "a-1",
@@ -226,7 +242,7 @@ describe("importing existing HubSpot leads for a source", () => {
     fake.contactDeals.set("9010", ["950"]);
 
     const r = await runOutcomeSync(deps(fake));
-    expect(r.imported).toContainEqual({ platform: code, found: 2, added: 2 });
+    expect(r.imported).toContainEqual({ platform: code, found: 2, added: 2, detailsUpdated: 1 });
 
     const rows = await t.db
       .selectFrom("leads")
@@ -246,7 +262,7 @@ describe("importing existing HubSpot leads for a source", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({
       external_lead_id: "HS-901",
-      first_name: "Imported",
+      first_name: "Test",
       origin: "hubspot_import",
       status: "delivered",
       destination_ids: { leadId: "901", contactId: "9010" },
@@ -254,10 +270,42 @@ describe("importing existing HubSpot leads for a source", () => {
       sold: true,
       sale_value: "7000.00",
     });
-    expect(rows[1]).toMatchObject({ external_lead_id: "HS-902" });
+    expect(rows[1]).toMatchObject({ external_lead_id: "HS-902", first_name: "Imported" });
+
+    // Contact details are copied, encrypted, and searchable like API leads.
+    const full = await t.db
+      .selectFrom("leads")
+      .selectAll()
+      .where("external_lead_id", "=", "HS-901")
+      .executeTakeFirstOrThrow();
+    expect(full).toMatchObject({
+      first_name: "Test",
+      last_name: "Person",
+      state: "VIC",
+      postcode: "3000",
+      country: "AU",
+    });
+    const pii = decryptLeadPii(full, {
+      encryptionKey: t.config.APP_ENCRYPTION_KEY,
+      blindIndexKey: t.config.APP_BLIND_INDEX_KEY,
+    });
+    expect(pii).toMatchObject({ phone: "+61491570006", email: "test.person@example.com" });
+    expect(
+      full.phone_bidx.equals(
+        phoneIndex("+61491570006", {
+          encryptionKey: t.config.APP_ENCRYPTION_KEY,
+          blindIndexKey: t.config.APP_BLIND_INDEX_KEY,
+        }),
+      ),
+    ).toBe(true);
 
     // Running again adds nothing.
     const again = await runOutcomeSync(deps(fake));
-    expect(again.imported).toContainEqual({ platform: code, found: 2, added: 0 });
+    expect(again.imported).toContainEqual({
+      platform: code,
+      found: 2,
+      added: 0,
+      detailsUpdated: 1,
+    });
   });
 });
