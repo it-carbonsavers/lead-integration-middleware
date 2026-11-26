@@ -221,6 +221,22 @@ describe("performance reports", () => {
     expect(audit).toHaveLength(1);
   });
 
+  it("lists the leads behind a number, by step, outcome, reason and source", async () => {
+    const list = async (qs: string) => (await get(staff, `/performance/leads?${qs}`)).json();
+    const sold = await list("step=sold");
+    expect(sold.total).toBe(2);
+    expect(sold.items[0]).toMatchObject({ name: "Test Lead", outcome: "sold", platform: "PRVA" });
+    expect((await list("step=proposal_sent")).total).toBe(3);
+    expect((await list("outcome=disqualified")).total).toBe(1);
+    expect((await list("lost_reason=Price")).items).toHaveLength(1);
+    expect((await list("dq_reason=Not%20interested")).total).toBe(1);
+    expect((await list("dq_reason=No%20reason%20given")).total).toBe(0);
+    expect((await list("platform=PRVB&step=contacted")).total).toBe(1);
+    const paged = await list("pageSize=2&page=2");
+    expect(paged).toMatchObject({ total: 7, page: 2, pageSize: 2 });
+    expect(paged.items).toHaveLength(2);
+  });
+
   it("is not available to lead provider users", async () => {
     const created = await app.inject({
       method: "POST",
@@ -233,6 +249,7 @@ describe("performance reports", () => {
     for (const path of [
       "/performance/summary",
       "/performance/providers",
+      "/performance/leads",
       "/performance/export.csv",
     ]) {
       expect((await get(provider, path)).statusCode).toBe(403);

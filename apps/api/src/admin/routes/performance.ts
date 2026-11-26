@@ -4,6 +4,7 @@
  *
  *   GET /performance/summary      funnel totals, outcome and lost-reason breakdowns, sync status
  *   GET /performance/providers    the funnel per source, for comparison
+ *   GET /performance/leads        the leads behind any number on the page (paged)
  *   GET /performance/export.csv   one row per lead (no personal data), audited
  *
  * Funnel stages are cumulative: a sold lead also counts as contacted, interested and proposal
@@ -40,6 +41,18 @@ const performanceQuery = leadFilterSchema.pick({ from: true, to: true, platform:
   outcome: z.enum(OUTCOMES).optional(),
 });
 type PerformanceQuery = z.infer<typeof performanceQuery>;
+
+const NO_REASON = "No reason given";
+const STEPS = ["called", "contacted", "interested", "proposal_sent", "sold", "lost"] as const;
+
+/** Which leads to list: a funnel step, a lost or disqualification reason (plus the page filters). */
+const leadListQuery = performanceQuery.extend({
+  step: z.enum(STEPS).optional(),
+  lost_reason: z.string().max(300).optional(),
+  dq_reason: z.string().max(300).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
+});
 
 // --- Stage rules (on alias o = lead_outcomes) -------------------------------------
 const qualifiedStage = sql<boolean>`(o.lead_stage ILIKE '%qualified%' AND o.lead_stage NOT ILIKE 'disqualified%')`;
@@ -163,7 +176,7 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
       const lostReasons = await base(q, req.admin!)
         .where("o.lost", "=", true)
         .select([
-          sql<string>`coalesce(o.lost_reason, 'No reason given')`.as("reason"),
+          sql<string>`coalesce(o.lost_reason, ${NO_REASON})`.as("reason"),
           sql<number>`count(*)::int`.as("n"),
         ])
         .groupBy(sql`1`)
@@ -173,7 +186,7 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
       const disqualified = await base(q, req.admin!)
         .where(disqualifiedStage)
         .select([
-          sql<string>`coalesce(o.disqualification_reason, 'No reason given')`.as("reason"),
+          sql<string>`coalesce(o.disqualification_reason, ${NO_REASON})`.as("reason"),
           sql<number>`count(*)::int`.as("n"),
         ])
         .groupBy(sql`1`)
@@ -198,6 +211,77 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
         disqualification_reasons: disqualified,
         campaigns: campaigns.map((c) => c.campaign).filter((c): c is string => !!c),
         sync: await syncStatus(),
+      };
+    },
+  );
+
+  r.get(
+    "/performance/leads",
+    {
+      preHandler: [requirePermission("reports.read"), requirePermission("leads.read"), staffOnly],
+      schema: { querystring: leadListQuery },
+    },
+    async (req) => {
+      const q = req.query;
+      let qb = base(q, req.admin!);
+      const stepRule = {
+        called: sql<boolean>`(o.calls_attempted > 0 OR ${contacted})`,
+        contacted,
+        interested,
+        proposal_sent: proposal,
+        sold: sql<boolean>`o.sold`,
+        lost: sql<boolean>`o.lost`,
+      } as const;
+      if (q.step) qb = qb.where(stepRule[q.step]);
+      if (q.lost_reason !== undefined) {
+        qb = qb.where("o.lost", "=", true);
+        qb =
+          q.lost_reason === NO_REASON
+            ? qb.where("o.lost_reason", "is", null)
+            : qb.where("o.lost_reason", "=", q.lost_reason);
+      }
+      if (q.dq_reason !== undefined) {
+        qb = qb.where(disqualifiedStage);
+        qb =
+          q.dq_reason === NO_REASON
+            ? qb.where("o.disqualification_reason", "is", null)
+            : qb.where("o.disqualification_reason", "=", q.dq_reason);
+      }
+      const [count] = await qb.select(sql<number>`count(*)::int`.as("n")).execute();
+      const rows = await qb
+        .select([
+          "leads.lead_ref",
+          "leads.first_name",
+          "leads.last_name",
+          "leads.campaign",
+          "leads.received_at",
+          "platforms.code as platform",
+          "platforms.display_name as platform_name",
+          outcomeOf.as("outcome"),
+          "o.lead_stage",
+          "o.calls_attempted",
+          "o.calls_connected",
+          "o.disqualification_reason",
+          "o.deal_pipeline",
+          "o.deal_stage",
+          "o.proposal_sent_at",
+          "o.lost_reason",
+          "o.sold_at",
+          "o.sale_value",
+        ])
+        .orderBy("leads.received_at", "desc")
+        .limit(q.pageSize)
+        .offset((q.page - 1) * q.pageSize)
+        .execute();
+      return {
+        items: rows.map((row) => ({
+          ...row,
+          name: `${row.first_name} ${row.last_name}`.trim(),
+          sale_value: row.sale_value === null ? null : Number(row.sale_value),
+        })),
+        total: count?.n ?? 0,
+        page: q.page,
+        pageSize: q.pageSize,
       };
     },
   );

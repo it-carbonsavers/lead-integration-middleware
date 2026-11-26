@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Download, Trophy } from "lucide-react";
+import { Download, Trophy, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { can, useMe } from "@/lib/me";
 import type { Options } from "@/lib/types";
@@ -16,6 +16,7 @@ import {
   Input,
   Notice,
   PageHeader,
+  Pagination,
   Segmented,
   Select,
   StatCard,
@@ -111,8 +112,42 @@ function View() {
       if (v) sp.set(k, v);
       else sp.delete(k);
     }
-    router.push(`/performance?${sp.toString()}`);
+    router.push(`/performance?${sp.toString()}`, { scroll: false });
   };
+
+  // Drill-down: which leads to list under the summary (d_* params, kept separate from the
+  // page filters so the numbers above do not change when a list is opened).
+  const drill = {
+    step: params.get("d_step") ?? "",
+    outcome: params.get("d_outcome") ?? "",
+    lost: params.get("d_lost"),
+    dq: params.get("d_dq"),
+    source: params.get("d_source") ?? "",
+  };
+  const drillOpen = !!(
+    drill.step ||
+    drill.outcome ||
+    drill.lost !== null ||
+    drill.dq !== null ||
+    drill.source
+  );
+  const drillHref = (d: Record<string, string>) => {
+    const sp = new URLSearchParams(params.toString());
+    for (const k of ["d_step", "d_outcome", "d_lost", "d_dq", "d_source", "d_page"]) sp.delete(k);
+    for (const [k, v] of Object.entries(d)) sp.set(`d_${k}`, v);
+    return `/performance?${sp.toString()}`;
+  };
+  const sourceName = (code: string) =>
+    providers.data?.items.find((x) => x.platform === code)?.platform_name ?? code;
+  const drillTitle = [
+    drill.step && STEP_LABEL[drill.step],
+    drill.outcome && `Now: ${OUTCOME_LABEL[drill.outcome] ?? drill.outcome}`,
+    drill.lost !== null && `Lost: ${drill.lost}`,
+    drill.dq !== null && `Disqualified: ${drill.dq}`,
+    drill.source && sourceName(drill.source),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   const t = summary.data?.totals;
   const sync = summary.data?.sync;
@@ -283,16 +318,37 @@ function View() {
           ) : (
             <BarList
               items={[
-                { label: "Delivered", value: t.received },
-                { label: "Called", value: t.called, sub: step(t.called) },
-                { label: "Contacted", value: t.contacted, sub: step(t.contacted) },
+                { label: "Delivered", value: t.received, href: drillHref({ step: "all" }) },
+                {
+                  label: "Called",
+                  value: t.called,
+                  sub: step(t.called),
+                  href: drillHref({ step: "called" }),
+                },
+                {
+                  label: "Contacted",
+                  value: t.contacted,
+                  sub: step(t.contacted),
+                  href: drillHref({ step: "contacted" }),
+                },
                 {
                   label: "Interested (deal created)",
                   value: t.interested,
                   sub: step(t.interested),
+                  href: drillHref({ step: "interested" }),
                 },
-                { label: "Proposal sent", value: t.proposal_sent, sub: step(t.proposal_sent) },
-                { label: "Sold", value: t.sold, sub: step(t.sold) },
+                {
+                  label: "Proposal sent",
+                  value: t.proposal_sent,
+                  sub: step(t.proposal_sent),
+                  href: drillHref({ step: "proposal_sent" }),
+                },
+                {
+                  label: "Sold",
+                  value: t.sold,
+                  sub: step(t.sold),
+                  href: drillHref({ step: "sold" }),
+                },
               ]}
             />
           )}
@@ -309,7 +365,7 @@ function View() {
                 .map(([k, n]) => ({
                   label: OUTCOME_LABEL[k] ?? k,
                   value: n,
-                  href: `/performance?${new URLSearchParams({ ...Object.fromEntries(params), outcome: k }).toString()}`,
+                  href: drillHref({ outcome: k }),
                 }))}
             />
           )}
@@ -365,17 +421,30 @@ function View() {
                   <div className="text-xs text-slate-500">{r.platform}</div>
                 </Td>
                 <Td className="text-right">
-                  <Link
-                    className="font-medium tabular-nums hover:underline"
-                    href={`/leads?${r.drilldown}`}
-                  >
+                  <CountLink href={drillHref({ source: r.platform, step: "all" })}>
                     {r.received.toLocaleString()}
-                  </Link>
+                  </CountLink>
                 </Td>
-                <Td className="text-right tabular-nums">{p(r.contact_rate_pct)}</Td>
-                <Td className="text-right tabular-nums">{r.interested}</Td>
-                <Td className="text-right tabular-nums">{r.proposal_sent}</Td>
-                <Td className="text-right tabular-nums">{r.sold}</Td>
+                <Td className="text-right">
+                  <CountLink href={drillHref({ source: r.platform, step: "contacted" })}>
+                    {p(r.contact_rate_pct)}
+                  </CountLink>
+                </Td>
+                <Td className="text-right">
+                  <CountLink href={drillHref({ source: r.platform, step: "interested" })}>
+                    {r.interested}
+                  </CountLink>
+                </Td>
+                <Td className="text-right">
+                  <CountLink href={drillHref({ source: r.platform, step: "proposal_sent" })}>
+                    {r.proposal_sent}
+                  </CountLink>
+                </Td>
+                <Td className="text-right">
+                  <CountLink href={drillHref({ source: r.platform, step: "sold" })}>
+                    {r.sold}
+                  </CountLink>
+                </Td>
                 <Td className="text-right font-medium tabular-nums">{p(r.conversion_rate_pct)}</Td>
                 <Td className="text-right tabular-nums">{money(r.sale_value)}</Td>
                 <Td className="text-right tabular-nums">{money(r.value_per_lead)}</Td>
@@ -395,7 +464,11 @@ function View() {
             <p className="text-sm text-slate-500">No lost deals in this period.</p>
           ) : (
             <BarList
-              items={summary.data.lost_reasons.map((r) => ({ label: r.reason, value: r.n }))}
+              items={summary.data.lost_reasons.map((r) => ({
+                label: r.reason,
+                value: r.n,
+                href: drillHref({ lost: r.reason }),
+              }))}
             />
           )}
         </Card>
@@ -411,11 +484,32 @@ function View() {
               items={summary.data.disqualification_reasons.map((r) => ({
                 label: r.reason,
                 value: r.n,
+                href: drillHref({ dq: r.reason }),
               }))}
             />
           )}
         </Card>
       </div>
+
+      {drillOpen && (
+        <LeadList
+          filterQs={qs}
+          drill={drill}
+          title={drillTitle}
+          page={Number(params.get("d_page") ?? "1")}
+          onPage={(n) => set({ d_page: n > 1 ? String(n) : null })}
+          onClose={() =>
+            set({
+              d_step: null,
+              d_outcome: null,
+              d_lost: null,
+              d_dq: null,
+              d_source: null,
+              d_page: null,
+            })
+          }
+        />
+      )}
 
       {summary.data && (
         <p className="mt-4 text-xs text-slate-500">
@@ -426,6 +520,172 @@ function View() {
         </p>
       )}
     </>
+  );
+}
+
+const STEP_LABEL: Record<string, string> = {
+  all: "All delivered leads",
+  called: "Called",
+  contacted: "Contacted",
+  interested: "Interested (deal created)",
+  proposal_sent: "Proposal sent",
+  sold: "Sold",
+};
+
+function CountLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link href={href} scroll={false} className="font-medium tabular-nums hover:underline">
+      {children}
+    </Link>
+  );
+}
+
+interface PerfLead {
+  lead_ref: string;
+  name: string;
+  platform: string;
+  platform_name: string;
+  campaign: string | null;
+  received_at: string;
+  outcome: string;
+  lead_stage: string | null;
+  deal_pipeline: string | null;
+  deal_stage: string | null;
+  proposal_sent_at: string | null;
+  lost_reason: string | null;
+  disqualification_reason: string | null;
+  sold_at: string | null;
+  sale_value: number | null;
+}
+
+/** The leads behind a number on the page, opened by clicking it. */
+function LeadList({
+  filterQs,
+  drill,
+  title,
+  page,
+  onPage,
+  onClose,
+}: {
+  filterQs: string;
+  drill: { step: string; outcome: string; lost: string | null; dq: string | null; source: string };
+  title: string;
+  page: number;
+  onPage: (n: number) => void;
+  onClose: () => void;
+}) {
+  const sp = new URLSearchParams(filterQs);
+  if (drill.step && drill.step !== "all") sp.set("step", drill.step);
+  if (drill.outcome) sp.set("outcome", drill.outcome);
+  if (drill.lost !== null) sp.set("lost_reason", drill.lost);
+  if (drill.dq !== null) sp.set("dq_reason", drill.dq);
+  if (drill.source) sp.set("platform", drill.source);
+  sp.set("page", String(page));
+  const apiQs = sp.toString();
+  const list = useLoad(
+    () =>
+      api.get<{ items: PerfLead[]; total: number; page: number; pageSize: number }>(
+        `/performance/leads?${apiQs}`,
+      ),
+    [apiQs],
+  );
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [title]);
+
+  return (
+    <div ref={ref} className="mt-8 scroll-mt-6">
+      <Card
+        title={`Leads: ${title}`}
+        description={list.data ? `${list.data.total.toLocaleString()} leads` : undefined}
+        padded={false}
+        loading={list.loading && !!list.data}
+        actions={
+          <button
+            onClick={onClose}
+            className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"
+            aria-label="Close the list"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        }
+      >
+        <ErrorBanner error={list.error} />
+        {!list.data ? (
+          list.error ? null : (
+            <TableSkeleton cols={6} rows={5} />
+          )
+        ) : list.data.items.length === 0 ? (
+          <EmptyState icon={Trophy} title="No leads" />
+        ) : (
+          <>
+            <Table
+              head={
+                <tr>
+                  <Th>Lead</Th>
+                  <Th>Source</Th>
+                  <Th>Received</Th>
+                  <Th>Where it is now</Th>
+                  <Th>In HubSpot</Th>
+                  <Th>Reason</Th>
+                  <Th className="text-right">Sale value</Th>
+                </tr>
+              }
+            >
+              {list.data.items.map((l) => (
+                <tr key={l.lead_ref} className="hover:bg-slate-50">
+                  <Td>
+                    <Link
+                      href={`/leads/${l.lead_ref}`}
+                      className="font-medium text-slate-900 hover:underline"
+                    >
+                      {l.name || l.lead_ref}
+                    </Link>
+                    <div className="text-xs text-slate-500">{l.lead_ref}</div>
+                  </Td>
+                  <Td>
+                    <div>{l.platform_name}</div>
+                    {l.campaign && <div className="text-xs text-slate-500">{l.campaign}</div>}
+                  </Td>
+                  <Td className="whitespace-nowrap text-slate-600">
+                    {fmtDate(l.received_at, false)}
+                  </Td>
+                  <Td>
+                    <div>{OUTCOME_LABEL[l.outcome] ?? l.outcome}</div>
+                    {l.proposal_sent_at && (
+                      <div className="text-xs text-slate-500">
+                        Proposal {fmtDate(l.proposal_sent_at, false)}
+                      </div>
+                    )}
+                    {l.sold_at && (
+                      <div className="text-xs text-slate-500">Sold {fmtDate(l.sold_at, false)}</div>
+                    )}
+                  </Td>
+                  <Td>
+                    <div>{l.deal_stage ?? l.lead_stage ?? "—"}</div>
+                    {l.deal_pipeline && (
+                      <div className="text-xs text-slate-500">{l.deal_pipeline}</div>
+                    )}
+                  </Td>
+                  <Td className="text-slate-600">
+                    {l.lost_reason ?? l.disqualification_reason ?? "—"}
+                  </Td>
+                  <Td className="text-right tabular-nums">{money(l.sale_value)}</Td>
+                </tr>
+              ))}
+            </Table>
+            <Pagination
+              page={list.data.page}
+              pageSize={list.data.pageSize}
+              total={list.data.total}
+              onPage={onPage}
+              loading={list.loading}
+            />
+          </>
+        )}
+      </Card>
+    </div>
   );
 }
 
