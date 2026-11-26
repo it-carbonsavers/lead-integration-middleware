@@ -332,6 +332,8 @@ export async function adminLeadRoutes(app: FastifyInstance, opts: AdminRouteOpti
       const detail = {
         lead_ref: lead.lead_ref,
         external_lead_id: lead.external_lead_id,
+        /** api: sent by the provider; hubspot_import: an existing HubSpot lead read for reporting. */
+        origin: lead.origin,
         platform: { code: lead.platform_code, name: lead.platform_name },
         agent: agent ?? null,
         status: lead.status,

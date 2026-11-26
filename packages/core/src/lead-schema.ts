@@ -155,3 +155,10 @@ export function normaliseLeadSubmission(
     },
   };
 }
+
+/** A phone number in E.164 form, or null when it is not a valid number. */
+export function toE164(raw: string | null | undefined, defaultRegion: string): string | null {
+  if (!raw) return null;
+  const phone = parsePhoneNumberFromString(raw, defaultRegion as CountryCode);
+  return phone?.isValid() ? phone.number : null;
+}
