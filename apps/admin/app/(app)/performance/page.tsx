@@ -5,7 +5,7 @@ import { Suspense, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Download, Trophy, X } from "lucide-react";
 import { api } from "@/lib/api";
-import { can, useMe } from "@/lib/me";
+import { can, isProvider, useMe } from "@/lib/me";
 import type { Options } from "@/lib/types";
 import {
   BarList,
@@ -83,6 +83,8 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
 
 function View() {
   const me = useMe();
+  // Provider users see their own source only: no source filter and no comparison.
+  const provider = isProvider(me);
   const params = useSearchParams();
   const router = useRouter();
   const preset = params.get("period") ?? "90";
@@ -100,11 +102,17 @@ function View() {
     ...(outcome ? { outcome } : {}),
   }).toString();
 
-  const options = useLoad(() => api.get<Options>("/options"), []);
+  const options = useLoad(
+    () => (provider ? Promise.resolve(null) : api.get<Options>("/options")),
+    [provider],
+  );
   const summary = useLoad(() => api.get<Summary>(`/performance/summary?${qs}`), [qs]);
   const providers = useLoad(
-    () => api.get<{ items: ProviderRow[] }>(`/performance/providers?${qs}`),
-    [qs],
+    () =>
+      provider
+        ? Promise.resolve({ items: [] as ProviderRow[] })
+        : api.get<{ items: ProviderRow[] }>(`/performance/providers?${qs}`),
+    [qs, provider],
   );
   const set = (changes: Record<string, string | null>) => {
     const sp = new URLSearchParams(params.toString());
@@ -165,7 +173,11 @@ function View() {
     <>
       <PageHeader
         title="Performance"
-        description="What happened to delivered leads in HubSpot: calls, interest, proposals and sales, by the date each lead was received."
+        description={
+          provider
+            ? "What happened to the leads you sent: calls, interest, proposals, sales and sale values, by the date each lead was received."
+            : "What happened to delivered leads in HubSpot: calls, interest, proposals and sales, by the date each lead was received."
+        }
         actions={
           can(me, "leads.export") && t && t.received > 0 ? (
             <a
@@ -211,20 +223,22 @@ function View() {
             />
           </>
         )}
-        <Select
-          className="w-52"
-          value={platform}
-          onChange={(e) => set({ platform: e.target.value || null })}
-          aria-label="Source"
-          disabled={!options.data}
-        >
-          <option value="">{options.data ? "All sources" : "Loading sources…"}</option>
-          {options.data?.sources.map((s) => (
-            <option key={s.code} value={s.code}>
-              {s.name}
-            </option>
-          ))}
-        </Select>
+        {!provider && (
+          <Select
+            className="w-52"
+            value={platform}
+            onChange={(e) => set({ platform: e.target.value || null })}
+            aria-label="Source"
+            disabled={!options.data}
+          >
+            <option value="">{options.data ? "All sources" : "Loading sources…"}</option>
+            {options.data?.sources.map((s) => (
+              <option key={s.code} value={s.code}>
+                {s.name}
+              </option>
+            ))}
+          </Select>
+        )}
         <Select
           className="w-48"
           value={campaign}
@@ -255,8 +269,9 @@ function View() {
 
       {sync && !sync.enabled && (
         <Notice tone="info">
-          Outcomes are not being read from HubSpot: the outcome sync is switched off in this
-          environment (OUTCOME_SYNC_ENABLED on the worker), so the figures below stay empty.
+          {provider
+            ? "Outcomes are not available yet, so the figures below stay empty."
+            : "Outcomes are not being read from HubSpot: the outcome sync is switched off in this environment (OUTCOME_SYNC_ENABLED on the worker), so the figures below stay empty."}
         </Notice>
       )}
       {sync?.deals_unreadable && (
@@ -375,84 +390,88 @@ function View() {
         </Card>
       </div>
 
-      <Card
-        className="mb-8"
-        title="Compare sources"
-        padded={false}
-        loading={providers.loading && !!providers.data}
-        actions={
-          <Segmented
-            value={sort}
-            onChange={(v) => set({ sort: v === "conversion" ? null : v })}
-            options={[
-              { value: "conversion", label: "Conversion" },
-              { value: "value", label: "Value per lead" },
-              { value: "volume", label: "Volume" },
-            ]}
-          />
-        }
-      >
-        {!providers.data ? (
-          providers.error ? null : (
-            <TableSkeleton cols={8} rows={4} />
-          )
-        ) : sorted.length === 0 ? (
-          <EmptyState icon={Trophy} title="No delivered leads in this period" />
-        ) : (
-          <Table
-            head={
-              <tr>
-                <Th>Source</Th>
-                <Th className="text-right">Delivered</Th>
-                <Th className="text-right">Contacted</Th>
-                <Th className="text-right">Interested</Th>
-                <Th className="text-right">Proposals</Th>
-                <Th className="text-right">Sold</Th>
-                <Th className="text-right">Conversion</Th>
-                <Th className="text-right">Sale value</Th>
-                <Th className="text-right">Per lead</Th>
-              </tr>
-            }
-          >
-            {sorted.map((r) => (
-              <tr key={r.platform} className="hover:bg-slate-50">
-                <Td>
-                  <div className="font-medium text-slate-900">{r.platform_name}</div>
-                  <div className="text-xs text-slate-500">{r.platform}</div>
-                </Td>
-                <Td className="text-right">
-                  <CountLink href={drillHref({ source: r.platform, step: "all" })}>
-                    {r.received.toLocaleString()}
-                  </CountLink>
-                </Td>
-                <Td className="text-right">
-                  <CountLink href={drillHref({ source: r.platform, step: "contacted" })}>
-                    {p(r.contact_rate_pct)}
-                  </CountLink>
-                </Td>
-                <Td className="text-right">
-                  <CountLink href={drillHref({ source: r.platform, step: "interested" })}>
-                    {r.interested}
-                  </CountLink>
-                </Td>
-                <Td className="text-right">
-                  <CountLink href={drillHref({ source: r.platform, step: "proposal_sent" })}>
-                    {r.proposal_sent}
-                  </CountLink>
-                </Td>
-                <Td className="text-right">
-                  <CountLink href={drillHref({ source: r.platform, step: "sold" })}>
-                    {r.sold}
-                  </CountLink>
-                </Td>
-                <Td className="text-right font-medium tabular-nums">{p(r.conversion_rate_pct)}</Td>
-                <Td className="text-right tabular-nums">{money(r.sale_value)}</Td>
-                <Td className="text-right tabular-nums">{money(r.value_per_lead)}</Td>
-              </tr>
-            ))}
-          </Table>
-        )}
-      </Card>
+      {!provider && (
+        <Card
+          className="mb-8"
+          title="Compare sources"
+          padded={false}
+          loading={providers.loading && !!providers.data}
+          actions={
+            <Segmented
+              value={sort}
+              onChange={(v) => set({ sort: v === "conversion" ? null : v })}
+              options={[
+                { value: "conversion", label: "Conversion" },
+                { value: "value", label: "Value per lead" },
+                { value: "volume", label: "Volume" },
+              ]}
+            />
+          }
+        >
+          {!providers.data ? (
+            providers.error ? null : (
+              <TableSkeleton cols={8} rows={4} />
+            )
+          ) : sorted.length === 0 ? (
+            <EmptyState icon={Trophy} title="No delivered leads in this period" />
+          ) : (
+            <Table
+              head={
+                <tr>
+                  <Th>Source</Th>
+                  <Th className="text-right">Delivered</Th>
+                  <Th className="text-right">Contacted</Th>
+                  <Th className="text-right">Interested</Th>
+                  <Th className="text-right">Proposals</Th>
+                  <Th className="text-right">Sold</Th>
+                  <Th className="text-right">Conversion</Th>
+                  <Th className="text-right">Sale value</Th>
+                  <Th className="text-right">Per lead</Th>
+                </tr>
+              }
+            >
+              {sorted.map((r) => (
+                <tr key={r.platform} className="hover:bg-slate-50">
+                  <Td>
+                    <div className="font-medium text-slate-900">{r.platform_name}</div>
+                    <div className="text-xs text-slate-500">{r.platform}</div>
+                  </Td>
+                  <Td className="text-right">
+                    <CountLink href={drillHref({ source: r.platform, step: "all" })}>
+                      {r.received.toLocaleString()}
+                    </CountLink>
+                  </Td>
+                  <Td className="text-right">
+                    <CountLink href={drillHref({ source: r.platform, step: "contacted" })}>
+                      {p(r.contact_rate_pct)}
+                    </CountLink>
+                  </Td>
+                  <Td className="text-right">
+                    <CountLink href={drillHref({ source: r.platform, step: "interested" })}>
+                      {r.interested}
+                    </CountLink>
+                  </Td>
+                  <Td className="text-right">
+                    <CountLink href={drillHref({ source: r.platform, step: "proposal_sent" })}>
+                      {r.proposal_sent}
+                    </CountLink>
+                  </Td>
+                  <Td className="text-right">
+                    <CountLink href={drillHref({ source: r.platform, step: "sold" })}>
+                      {r.sold}
+                    </CountLink>
+                  </Td>
+                  <Td className="text-right font-medium tabular-nums">
+                    {p(r.conversion_rate_pct)}
+                  </Td>
+                  <Td className="text-right tabular-nums">{money(r.sale_value)}</Td>
+                  <Td className="text-right tabular-nums">{money(r.value_per_lead)}</Td>
+                </tr>
+              ))}
+            </Table>
+          )}
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card title="Why proposals were rejected" description="Lost deals by reason">
