@@ -183,3 +183,81 @@ describe("runOutcomeSync", () => {
     expect(off.errors[0]).toMatchObject({ code: "hubspot_disabled" });
   });
 });
+
+describe("importing existing HubSpot leads for a source", () => {
+  it("adds leads matching the source's Lead Company once, without personal data, and syncs them", async () => {
+    const code = "IMP01";
+    const p = await createPlatform(
+      t.db,
+      { organisationId: orgId, code, displayName: "Importer", rateLimitPerMin: 100 },
+      actor,
+    );
+    await t.db
+      .updateTable("platforms")
+      .set({ destination_id: hubspotId, hubspot_lead_company: "Example Co" })
+      .where("id", "=", p.id)
+      .execute();
+
+    const fake = new FakeHubSpotCrm();
+    // Two old leads of this company (one 2 years old), one of another company, one we delivered.
+    fake.leads.set("901", {
+      lead_company: "Example Co",
+      hs_createdate: new Date(Date.now() - 730 * 86_400_000).toISOString(),
+      hs_pipeline_stage: "qualified-stage-id",
+    });
+    fake.leads.set("902", {
+      lead_company: "Example Co",
+      hs_createdate: new Date(Date.now() - 5 * 86_400_000).toISOString(),
+      hs_pipeline_stage: "new-stage-id",
+    });
+    fake.leads.set("903", { lead_company: "Other Co", hs_createdate: new Date().toISOString() });
+    fake.leads.set("904", {
+      lead_company: "Example Co",
+      lim_lead_ref: "LD-ALREADYOURS",
+      hs_createdate: new Date().toISOString(),
+    });
+    fake.leadContacts.set("901", ["9010"]);
+    fake.deals.set("950", {
+      pipeline: "p-assess",
+      dealstage: "a-1",
+      createdate: new Date(Date.now() - 700 * 86_400_000).toISOString(),
+      total_amount: "7000",
+    });
+    fake.contactDeals.set("9010", ["950"]);
+
+    const r = await runOutcomeSync(deps(fake));
+    expect(r.imported).toContainEqual({ platform: code, found: 2, added: 2 });
+
+    const rows = await t.db
+      .selectFrom("leads")
+      .leftJoin("lead_outcomes as o", "o.lead_id", "leads.id")
+      .select([
+        "leads.external_lead_id",
+        "leads.first_name",
+        "leads.origin",
+        "leads.status",
+        "leads.destination_ids",
+        "o.sold",
+        "o.sale_value",
+      ])
+      .where("leads.platform_id", "=", p.id)
+      .orderBy("leads.external_lead_id")
+      .execute();
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      external_lead_id: "HS-901",
+      first_name: "Imported",
+      origin: "hubspot_import",
+      status: "delivered",
+      destination_ids: { leadId: "901", contactId: "9010" },
+      // Synced even though it is older than the reporting window; the contact's later deal counts.
+      sold: true,
+      sale_value: "7000.00",
+    });
+    expect(rows[1]).toMatchObject({ external_lead_id: "HS-902" });
+
+    // Running again adds nothing.
+    const again = await runOutcomeSync(deps(fake));
+    expect(again.imported).toContainEqual({ platform: code, found: 2, added: 0 });
+  });
+});

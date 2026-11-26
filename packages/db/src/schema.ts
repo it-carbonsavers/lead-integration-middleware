@@ -91,6 +91,8 @@ export interface PlatformsTable {
   rate_limit_per_min: number | null;
   recording_ingest_mode: Generated<"none" | "sftp_hosted">;
   destination_id: string | null;
+  /** Import existing HubSpot leads whose "Lead Company" equals this value (null = off). */
+  hubspot_lead_company: string | null;
   created_at: CreatedAt;
   updated_at: Timestamp;
 }
@@ -193,6 +195,8 @@ export interface LeadsTable {
   delivered_at: Date | null;
   destination_id: string | null;
   destination_ids: Json;
+  /** api: sent by the provider; hubspot_import: an existing HubSpot lead read for reporting. */
+  origin: Generated<"api" | "hubspot_import">;
   attempt_count: Generated<number>;
   last_error_code: string | null;
   retention_until: Date;

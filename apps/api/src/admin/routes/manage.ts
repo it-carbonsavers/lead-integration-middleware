@@ -64,6 +64,10 @@ export async function adminManageRoutes(app: FastifyInstance, opts: AdminRouteOp
         "o.slug as organisation",
         "d.name as destination_override",
         "p.destination_id",
+        "p.hubspot_lead_company",
+        sql<number>`(SELECT count(*)::int FROM leads l WHERE l.platform_id = p.id AND l.origin = 'hubspot_import')`.as(
+          "imported_count",
+        ),
         sql<number>`(SELECT count(*)::int FROM platform_api_credentials c WHERE c.platform_id = p.id AND c.revoked_at IS NULL AND (c.expires_at IS NULL OR c.expires_at > now()))`.as(
           "active_keys",
         ),
@@ -168,6 +172,8 @@ export async function adminManageRoutes(app: FastifyInstance, opts: AdminRouteOp
           rate_limit_per_min: z.number().int().min(1).max(100_000).nullable().optional(),
           allowed_cidrs: z.array(cidr).max(50).optional(),
           destination_id: z.uuid().nullable().optional(),
+          /** Import existing HubSpot leads whose Lead Company equals this (null/"" = off). */
+          hubspot_lead_company: z.string().trim().max(200).nullable().optional(),
         }),
       },
     },
@@ -208,6 +214,27 @@ export async function adminManageRoutes(app: FastifyInstance, opts: AdminRouteOp
           if (!d) throw problems.validation([{ path: "destination_id", code: "not_found" }]);
         }
         await setPlatformDestination(db, p.id, b.destination_id, actor);
+      }
+      if (b.hubspot_lead_company !== undefined) {
+        const value = b.hubspot_lead_company || null;
+        if (value !== p.hubspot_lead_company) {
+          await db
+            .updateTable("platforms")
+            .set({ hubspot_lead_company: value, updated_at: new Date() })
+            .where("id", "=", p.id)
+            .execute();
+          await writeAudit(db, {
+            actorType: "admin",
+            actorId: req.admin!.id,
+            actorLabel: req.admin!.email,
+            action: "platform.updated",
+            targetType: "platform",
+            targetId: p.id,
+            requestId: req.id,
+            ip: req.ip,
+            detail: { hubspot_lead_company: value },
+          });
+        }
       }
       return { ok: true };
     },

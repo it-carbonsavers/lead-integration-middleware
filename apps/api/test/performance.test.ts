@@ -280,3 +280,29 @@ describe("environment notice routing", () => {
     expect(await sync()).toMatchObject({ enabled: true });
   });
 });
+
+describe("HubSpot Lead Company setting on a source", () => {
+  it("saves, shows and clears the value, and audits the change", async () => {
+    const patch = (value: string | null) =>
+      app.inject({
+        method: "PATCH",
+        url: "/admin/v1/platforms/PRVA",
+        headers: { cookie: staff, "x-lim-admin": "1" },
+        payload: { hubspot_lead_company: value },
+      });
+    const prva = async () =>
+      (await get(staff, "/platforms"))
+        .json()
+        .items.find((p: { code: string }) => p.code === "PRVA");
+    expect((await patch("  Example Co  ")).statusCode).toBe(200);
+    expect(await prva()).toMatchObject({ hubspot_lead_company: "Example Co", imported_count: 0 });
+    expect((await patch("")).statusCode).toBe(200);
+    expect(await prva()).toMatchObject({ hubspot_lead_company: null });
+    const audits = await t.db
+      .selectFrom("audit_log")
+      .select("detail")
+      .where("action", "=", "platform.updated")
+      .execute();
+    expect(audits.length).toBeGreaterThanOrEqual(2);
+  });
+});
