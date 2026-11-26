@@ -51,6 +51,15 @@ export interface LeadOutcomeRead {
   deal: DealOutcome | null;
 }
 
+/** An existing HubSpot Lead found by its "Lead Company" value. */
+export interface CompanyLead {
+  hubspotLeadId: string;
+  contactId: string | null;
+  createdAt: Date;
+  /** Set when the lead was created by this system (it is already tracked). */
+  limLeadRef: string | null;
+}
+
 export interface OutcomeReadResult {
   outcomes: LeadOutcomeRead[];
   /** Deals could not be read (for example the key lacks the deals read scope). */
@@ -162,6 +171,49 @@ export class HubSpotOutcomeReader {
     return { outcomes, dealsUnreadable };
   }
 
+  /**
+   * Every HubSpot Lead whose Lead Company (custom property lead_company) equals `company`, oldest
+   * first, with its contact. Reads only ids, dates and our own reference: no personal data.
+   */
+  async findLeadsByCompany(company: string, max = 10_000): Promise<CompanyLead[]> {
+    this.client.guard();
+    const found: CompanyLead[] = [];
+    let after: string | undefined;
+    do {
+      const page = await this.client.request<{
+        results?: HsObject[];
+        paging?: { next?: { after?: string } };
+      }>("POST", "/crm/v3/objects/leads/search", {
+        filterGroups: [
+          { filters: [{ propertyName: "lead_company", operator: "EQ", value: company }] },
+        ],
+        properties: ["hs_createdate", "lim_lead_ref"],
+        sorts: [{ propertyName: "hs_createdate", direction: "ASCENDING" }],
+        limit: BATCH,
+        ...(after ? { after } : {}),
+      });
+      for (const o of page.results ?? []) {
+        const createdAt = date(o.properties["hs_createdate"]);
+        if (!createdAt) continue;
+        found.push({
+          hubspotLeadId: o.id,
+          contactId: null,
+          createdAt,
+          limLeadRef: text(o.properties["lim_lead_ref"]),
+        });
+      }
+      after = page.paging?.next?.after;
+    } while (after && found.length < max);
+
+    const contacts = await this.associationsTo(
+      "leads",
+      "contacts",
+      found.map((f) => f.hubspotLeadId),
+    );
+    for (const f of found) f.contactId = contacts.get(f.hubspotLeadId)?.[0] ?? null;
+    return found;
+  }
+
   private async creditedDeals(
     lookups: OutcomeLookup[],
     existingLeads: Set<string>,
@@ -239,15 +291,20 @@ export class HubSpotOutcomeReader {
   }
 
   /** Deal ids associated with each lead or contact id. */
-  private async associations(
+  private associations(from: "leads" | "contacts", ids: string[]): Promise<Map<string, string[]>> {
+    return this.associationsTo(from, "deals", ids);
+  }
+
+  private async associationsTo(
     from: "leads" | "contacts",
+    to: "deals" | "contacts",
     ids: string[],
   ): Promise<Map<string, string[]>> {
     const out = new Map<string, string[]>();
     for (let i = 0; i < ids.length; i += BATCH) {
       const res = await this.client.request<{
         results?: { from: { id: string }; to: { toObjectId: string | number }[] }[];
-      }>("POST", `/crm/v4/associations/${from}/deals/batch/read`, {
+      }>("POST", `/crm/v4/associations/${from}/${to}/batch/read`, {
         inputs: ids.slice(i, i + BATCH).map((id) => ({ id })),
       });
       for (const r of res.results ?? []) {

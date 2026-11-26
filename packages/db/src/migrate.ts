@@ -17,6 +17,7 @@ import * as m0008 from "./migrations/0008_hosted_sftp_only.js";
 import * as m0009 from "./migrations/0009_portal_upload.js";
 import * as m0010 from "./migrations/0010_upload_lead_choice.js";
 import * as m0011 from "./migrations/0011_lead_outcomes.js";
+import * as m0012 from "./migrations/0012_hubspot_lead_import.js";
 
 export const MIGRATIONS: Record<string, Migration> = {
   "0001_foundation": m0001,
@@ -30,6 +31,7 @@ export const MIGRATIONS: Record<string, Migration> = {
   "0009_portal_upload": m0009,
   "0010_upload_lead_choice": m0010,
   "0011_lead_outcomes": m0011,
+  "0012_hubspot_lead_import": m0012,
 };
 
 const TABLE = "schema_migrations";

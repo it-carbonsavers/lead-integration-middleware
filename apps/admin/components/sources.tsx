@@ -22,6 +22,8 @@ export interface Source {
   allowed_cidrs: string[];
   destination_id: string | null;
   destination_override: string | null;
+  hubspot_lead_company: string | null;
+  imported_count: number;
 }
 
 export function RecordingHealth({

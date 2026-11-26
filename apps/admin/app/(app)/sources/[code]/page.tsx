@@ -619,6 +619,54 @@ function LoginsTab({ code, onChanged }: { code: string; onChanged: () => Promise
   );
 }
 
+/** Existing HubSpot leads for this source, matched by HubSpot's "Lead Company" field. */
+function HubSpotImportCard({ s, onChanged }: { s: Source; onChanged: () => Promise<void> }) {
+  const [company, setCompany] = useState(s.hubspot_lead_company ?? "");
+  const [error, setError] = useState<unknown>(null);
+  const [saving, setSaving] = useState(false);
+  const save = async (value: string | null) => {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.patch(`/platforms/${s.code}`, { hubspot_lead_company: value });
+      await onChanged();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Card
+      title="Existing leads in HubSpot"
+      description="Report on leads this provider sent before the integration. They are read from HubSpot (nothing there is changed) and no personal details are copied."
+    >
+      <ErrorBanner error={error} />
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-[260px] flex-1">
+          <Field
+            label="HubSpot Lead Company"
+            hint="Exactly as it appears in the Lead Company column in HubSpot. Leave empty to import nothing."
+          >
+            <Input value={company} onChange={(e) => setCompany(e.target.value)} maxLength={200} />
+          </Field>
+        </div>
+        <Button
+          disabled={saving || company.trim() === (s.hubspot_lead_company ?? "")}
+          onClick={() => save(company.trim() || null)}
+        >
+          Save
+        </Button>
+      </div>
+      <p className="mt-3 text-sm text-slate-600">
+        {s.hubspot_lead_company
+          ? `${s.imported_count.toLocaleString()} HubSpot leads imported so far. New ones are picked up every 15 minutes while the outcome sync is on.`
+          : "Not importing from HubSpot."}
+      </p>
+    </Card>
+  );
+}
+
 function SettingsTab({ s, onChanged }: { s: Source; onChanged: () => Promise<void> }) {
   const me = useMe();
   const dests = useLoad(
@@ -682,6 +730,7 @@ function SettingsTab({ s, onChanged }: { s: Source; onChanged: () => Promise<voi
           </div>
         </Card>
       )}
+      {can(me, "destinations.manage") && <HubSpotImportCard s={s} onChanged={onChanged} />}
       <Card title={s.status === "active" ? "Suspend this source" : "Re-activate this source"}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="max-w-xl text-sm text-slate-600">

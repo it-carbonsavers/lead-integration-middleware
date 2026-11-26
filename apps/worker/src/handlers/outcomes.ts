@@ -5,8 +5,10 @@
  * HubSpot Lead id saved when the lead was delivered. On the development environment that means
  * only the TEST leads routed to HubSpot; production reads the leads it delivered itself.
  *
- * Each run refreshes up to OUTCOME_SYNC_BATCH leads received within OUTCOME_SYNC_WINDOW_DAYS,
- * never-synced leads first, then the longest since their last refresh.
+ * Each run first adds existing HubSpot leads for sources that have a "HubSpot Lead Company" set
+ * (see hubspot-import.ts), then refreshes up to OUTCOME_SYNC_BATCH leads received within
+ * OUTCOME_SYNC_WINDOW_DAYS (imported leads at any age), never-synced leads first, then the longest
+ * since their last refresh.
  */
 
 import { sql, type Kysely } from "kysely";
@@ -19,6 +21,7 @@ import {
   type LeadOutcomeRead,
   type OutcomeLookup,
 } from "@lim/destinations";
+import { importHubSpotLeads, type ImportResult } from "./hubspot-import.js";
 
 export interface OutcomeSyncDeps {
   db: Kysely<Database>;
@@ -35,6 +38,7 @@ export interface OutcomeSyncResult {
   missing: number;
   errors: { destinationId: string; code: string }[];
   dealsUnreadable: string | null;
+  imported: ImportResult[];
 }
 
 export async function runOutcomeSync(deps: OutcomeSyncDeps): Promise<OutcomeSyncResult> {
@@ -46,11 +50,14 @@ export async function runOutcomeSync(deps: OutcomeSyncDeps): Promise<OutcomeSync
     missing: 0,
     errors: [],
     dealsUnreadable: null,
+    imported: [],
   };
   if (!config.OUTCOME_SYNC_ENABLED) {
     await touchServiceStatus(db, "outcome-sync", { ...result, status: "disabled" });
     return { ...result, status: "disabled" };
   }
+
+  result.imported = await importHubSpotLeads(deps);
 
   const rows = await db
     .selectFrom("leads as l")
@@ -66,10 +73,15 @@ export async function runOutcomeSync(deps: OutcomeSyncDeps): Promise<OutcomeSync
     .where("d.type", "=", "hubspot")
     .where("l.status", "=", "delivered")
     .where(sql<boolean>`l.destination_ids->>'leadId' IS NOT NULL`)
-    .where(
-      "l.received_at",
-      ">=",
-      sql<Date>`now() - make_interval(days => ${config.OUTCOME_SYNC_WINDOW_DAYS})`,
+    .where((eb) =>
+      eb.or([
+        eb(
+          "l.received_at",
+          ">=",
+          sql<Date>`now() - make_interval(days => ${config.OUTCOME_SYNC_WINDOW_DAYS})`,
+        ),
+        eb("l.origin", "=", "hubspot_import"),
+      ]),
     )
     .orderBy(sql`o.synced_at ASC NULLS FIRST`)
     .orderBy("l.received_at", "desc")
@@ -133,7 +145,8 @@ export async function runOutcomeSync(deps: OutcomeSyncDeps): Promise<OutcomeSync
     }
   }
 
-  if (result.checked || result.errors.length) deps.log.info(result, "outcome sync");
+  if (result.checked || result.errors.length || result.imported.length)
+    deps.log.info(result, "outcome sync");
   await touchServiceStatus(db, "outcome-sync", { ...result });
   return result;
 }

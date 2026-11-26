@@ -10,6 +10,7 @@ export class FakeHubSpotCrm {
   deals = new Map<string, Props>();
   leadDeals = new Map<string, string[]>();
   contactDeals = new Map<string, string[]>();
+  leadContacts = new Map<string, string[]>();
   calls: { method: string; path: string }[] = [];
   /** HTTP status to return for deal and association reads (e.g. 403 when the scope is missing). */
   dealsStatus = 200;
@@ -59,6 +60,16 @@ export class FakeHubSpotCrm {
       return json(200, { results: this.dealPipelines });
 
     const ids = ((body?.inputs ?? []) as { id: string }[]).map((i) => i.id);
+    if (method === "POST" && p === "/crm/v3/objects/leads/search") {
+      const f = body.filterGroups[0].filters[0] as { propertyName: string; value: string };
+      const hits = [...this.leads.entries()].filter(([, l]) => l[f.propertyName] === f.value);
+      return json(200, {
+        total: hits.length,
+        results: read(new Map(hits), hits.map(([id]) => id), body.properties),
+      });
+    }
+    if (method === "POST" && p === "/crm/v4/associations/leads/contacts/batch/read")
+      return json(200, { results: assoc(this.leadContacts, ids) });
     if (method === "POST" && p === "/crm/v3/objects/leads/batch/read")
       return json(200, { results: read(this.leads, ids, body.properties) });
 
