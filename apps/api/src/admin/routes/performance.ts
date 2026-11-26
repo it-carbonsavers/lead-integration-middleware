@@ -1,6 +1,8 @@
 /**
  * Lead performance: what happened to leads after delivery (from lead_outcomes, filled by the
- * read-only sync-outcomes job). Internal staff only; providers get their own report later.
+ * read-only sync-outcomes job). Lead provider users see the same report for their own source
+ * only (every query goes through scopeLeads), including sale values, which their payment is based
+ * on; the comparison across sources is staff only.
  *
  *   GET /performance/summary      funnel totals, outcome and lost-reason breakdowns, sync status
  *   GET /performance/providers    the funnel per source, for comparison
@@ -19,7 +21,13 @@ import { z } from "zod";
 import { problems } from "@lim/core";
 import { writeAudit, type Database } from "@lim/db";
 import { requirePermission, type AdminContext } from "../auth.js";
-import { applyLeadFilters, baseLeadQuery, filterToQuery, leadFilterSchema } from "../lead-query.js";
+import {
+  applyLeadFilters,
+  baseLeadQuery,
+  filterToQuery,
+  isProviderUser,
+  leadFilterSchema,
+} from "../lead-query.js";
 import type { AdminRouteOptions } from "./index.js";
 
 const OUTCOMES = [
@@ -124,11 +132,11 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
   const r = app.withTypeProvider<ZodTypeProvider>();
   const tz = config.REPORT_TIMEZONE;
 
-  /** Staff only: provider users get their own report with only the agreed fields (phase 3). */
+  /** The comparison across sources is for staff; a provider only ever sees its own source. */
   const staffOnly = async (req: { admin?: AdminContext }) => {
     if (req.admin?.platformId) throw problems.forbidden("Not available for lead provider users");
   };
-  const pre = [requirePermission("reports.read"), staffOnly];
+  const pre = [requirePermission("reports.read")];
 
   const base = (q: PerformanceQuery, admin: AdminContext): PerfQB => {
     let qb = applyLeadFilters(
@@ -143,7 +151,7 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
     return qb;
   };
 
-  const syncStatus = async () => {
+  const syncStatus = async (provider: boolean) => {
     const s = await db
       .selectFrom("service_status")
       .select(["last_seen_at", "detail"])
@@ -159,7 +167,8 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
     return {
       enabled: config.OUTCOME_SYNC_ENABLED || worker?.on === true,
       last_run_at: s?.last_seen_at ?? null,
-      deals_unreadable: detail.dealsUnreadable ?? null,
+      // Internal error detail is not shown to provider users.
+      deals_unreadable: provider ? null : (detail.dealsUnreadable ?? null),
     };
   };
 
@@ -210,7 +219,7 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
         lost_reasons: lostReasons,
         disqualification_reasons: disqualified,
         campaigns: campaigns.map((c) => c.campaign).filter((c): c is string => !!c),
-        sync: await syncStatus(),
+        sync: await syncStatus(isProviderUser(req.admin!)),
       };
     },
   );
@@ -218,7 +227,7 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
   r.get(
     "/performance/leads",
     {
-      preHandler: [requirePermission("reports.read"), requirePermission("leads.read"), staffOnly],
+      preHandler: [requirePermission("reports.read"), requirePermission("leads.read")],
       schema: { querystring: leadListQuery },
     },
     async (req) => {
@@ -288,7 +297,7 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
 
   r.get(
     "/performance/providers",
-    { preHandler: pre, schema: { querystring: performanceQuery } },
+    { preHandler: [...pre, staffOnly], schema: { querystring: performanceQuery } },
     async (req) => {
       const q = req.query;
       const rows = await base(q, req.admin!)
@@ -313,7 +322,7 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
   r.get(
     "/performance/export.csv",
     {
-      preHandler: [requirePermission("leads.export"), staffOnly],
+      preHandler: [requirePermission("reports.read"), requirePermission("leads.export")],
       schema: { querystring: performanceQuery },
     },
     async (req, reply) => {

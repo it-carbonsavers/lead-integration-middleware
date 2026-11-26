@@ -237,23 +237,37 @@ describe("performance reports", () => {
     expect(paged.items).toHaveLength(2);
   });
 
-  it("is not available to lead provider users", async () => {
+  it("shows lead provider users their own source only, with sale values", async () => {
     const created = await app.inject({
       method: "POST",
-      url: "/admin/v1/platforms/PRVB/users",
+      url: "/admin/v1/platforms/PRVA/users",
       headers: { cookie: staff, "x-lim-admin": "1" },
-      payload: { email: "portal.b@provider.test", name: "Provider B user" },
+      payload: { email: "portal.a@provider.test", name: "Provider A user" },
     });
     expect(created.statusCode).toBe(201);
-    const provider = await login("portal.b@provider.test", created.json().temporary_password);
-    for (const path of [
-      "/performance/summary",
-      "/performance/providers",
-      "/performance/leads",
-      "/performance/export.csv",
-    ]) {
-      expect((await get(provider, path)).statusCode).toBe(403);
-    }
+    const provider = await login("portal.a@provider.test", created.json().temporary_password);
+
+    const summary = (await get(provider, "/performance/summary")).json();
+    expect(summary.totals).toMatchObject({ received: 5, sold: 2, sale_value: 9000 });
+    expect(summary.sync.deals_unreadable).toBeNull();
+    // Asking for another source changes nothing: the provider's scope always applies.
+    expect((await get(provider, "/performance/summary?platform=PRVB")).json().totals.received).toBe(
+      0,
+    );
+
+    const sold = (await get(provider, "/performance/leads?step=sold")).json();
+    expect(sold.total).toBe(2);
+    expect(sold.items.map((l: { sale_value: number | null }) => l.sale_value)).toContain(9000);
+    const all = (await get(provider, "/performance/leads?pageSize=100")).json();
+    expect(all.items.every((l: { platform: string }) => l.platform === "PRVA")).toBe(true);
+
+    const csv = await get(provider, "/performance/export.csv");
+    expect(csv.statusCode).toBe(200);
+    expect(csv.body).toContain("9000");
+    expect(csv.body).not.toContain("PRVB");
+
+    // The comparison across sources stays staff only.
+    expect((await get(provider, "/performance/providers")).statusCode).toBe(403);
   });
 });
 

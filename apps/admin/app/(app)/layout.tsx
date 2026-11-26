@@ -65,7 +65,7 @@ const NAV: NavItem[] = [
     href: "/performance",
     label: "Performance",
     icon: TrendingUp,
-    show: (m) => isStaff(m) && m.permissions.includes("reports.read"),
+    show: (m) => m.permissions.includes("reports.read"),
   },
   { href: "/settings", label: "Settings", icon: Settings, show: canSeeSettings },
 ];
