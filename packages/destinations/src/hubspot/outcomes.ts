@@ -35,6 +35,8 @@ export interface DealOutcome {
   soldAt: Date | null;
   saleValue: number | null;
   saleValueField: "total_amount" | "amount" | null;
+  /** What was quoted (total_amount, else amount), whether or not the deal is sold. */
+  quoteValue: number | null;
 }
 
 export interface LeadOutcomeRead {
@@ -400,6 +402,7 @@ export function toDealOutcome(
     soldAt: entered.length ? new Date(Math.min(...entered.map((x) => x.getTime()))) : null,
     saleValue: sold ? sale.value : null,
     saleValueField: sold ? sale.field : null,
+    quoteValue: sale.value,
   };
 }
 

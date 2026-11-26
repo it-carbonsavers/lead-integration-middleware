@@ -336,6 +336,8 @@ export interface LeadOutcomesTable {
   /** numeric: returned as a string by node-postgres. */
   sale_value: ColumnType<string | null, number | string | null, number | string | null>;
   sale_value_field: "total_amount" | "amount" | null;
+  /** The deal's quote total, sold or not (numeric, as a string). */
+  quote_value: ColumnType<string | null, number | string | null, number | string | null>;
   synced_at: Timestamp;
   created_at: CreatedAt;
 }

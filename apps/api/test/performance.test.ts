@@ -124,6 +124,7 @@ beforeAll(async () => {
     sold_at: new Date(),
     sale_value: 9000,
     sale_value_field: "total_amount",
+    quote_value: 9000,
   });
   await lead("PRVA", { lead_stage: "Qualified [Create Deal]", deal_count: 1, sold: true });
   await lead("PRVA", {
@@ -133,6 +134,7 @@ beforeAll(async () => {
     proposal_sent_at: new Date(),
     lost: true,
     lost_reason: "Price",
+    quote_value: 5000,
   });
   await lead("PRVA", { lead_stage: "New" }, "Winter");
   await lead("PRVA", null);
@@ -169,6 +171,9 @@ describe("performance reports", () => {
       sale_value: 9000,
       sold_with_value: 1,
       value_coverage_pct: 50,
+      // Both quoted proposals were decided (one sold, one lost), so nothing is still open.
+      quoted_value: 14000,
+      open_quote_value: 0,
     });
     expect(s.by_outcome).toMatchObject({
       sold: 2,
@@ -228,7 +233,9 @@ describe("performance reports", () => {
     expect(sold.items[0]).toMatchObject({ name: "Test Lead", outcome: "sold", platform: "PRVA" });
     expect((await list("step=proposal_sent")).total).toBe(3);
     expect((await list("outcome=disqualified")).total).toBe(1);
-    expect((await list("lost_reason=Price")).items).toHaveLength(1);
+    const lost = (await list("lost_reason=Price")).items;
+    expect(lost).toHaveLength(1);
+    expect(lost[0]).toMatchObject({ quote_value: 5000, sale_value: null });
     expect((await list("dq_reason=Not%20interested")).total).toBe(1);
     expect((await list("dq_reason=No%20reason%20given")).total).toBe(0);
     expect((await list("platform=PRVB&step=contacted")).total).toBe(1);

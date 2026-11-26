@@ -72,6 +72,7 @@ describe("HubSpot outcome reader", () => {
       lost: false,
       saleValue: 4500,
       saleValueField: "amount",
+      quoteValue: 4500,
     });
     expect(a!.deal!.soldAt?.toISOString()).toBe("2026-11-10T00:00:00.000Z");
     expect(a!.deal!.proposalSentAt?.toISOString()).toBe("2026-11-05T00:00:00.000Z");
@@ -100,6 +101,7 @@ describe("HubSpot outcome reader", () => {
       pipeline: "p-sales",
       dealstage: "s-proposal",
       createdate: "2026-11-03T00:00:00Z",
+      total_amount: "6400",
     });
     fake.contactDeals.set("c1", ["600", "601"]);
 
@@ -107,7 +109,12 @@ describe("HubSpot outcome reader", () => {
       { hubspotLeadId: "10", contactId: "c1", receivedAt: received },
     ]);
     expect(outcomes[0]!.dealCount).toBe(1);
-    expect(outcomes[0]!.deal).toMatchObject({ dealId: "601", sold: false, saleValue: null });
+    expect(outcomes[0]!.deal).toMatchObject({
+      dealId: "601",
+      sold: false,
+      saleValue: null,
+      quoteValue: 6400,
+    });
   });
 
   it("marks lost deals with their reason, and leads deleted in HubSpot as missing", async () => {
@@ -173,6 +180,7 @@ describe("sale value and deal choice", () => {
       soldAt: null,
       saleValue: null,
       saleValueField: null,
+      quoteValue: null,
     };
     const lost = { ...base, dealId: "lost", lost: true };
     const open = { ...base, dealId: "open" };

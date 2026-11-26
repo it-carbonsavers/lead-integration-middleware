@@ -97,6 +97,11 @@ const funnel = () => [
     "sold_with_value",
   ),
   sql<number>`coalesce(sum(o.sale_value) FILTER (WHERE o.sold), 0)::float`.as("sale_value"),
+  // What was quoted on every proposal sent, and the part still open (not sold, not lost).
+  sql<number>`coalesce(sum(o.quote_value) FILTER (WHERE ${proposal}), 0)::float`.as("quoted_value"),
+  sql<number>`coalesce(sum(o.quote_value) FILTER (WHERE ${proposal} AND NOT o.sold AND NOT o.lost), 0)::float`.as(
+    "open_quote_value",
+  ),
 ];
 
 interface FunnelRow {
@@ -110,6 +115,8 @@ interface FunnelRow {
   lost: number;
   sold_with_value: number;
   sale_value: number;
+  quoted_value: number;
+  open_quote_value: number;
 }
 
 const pct = (n: number, d: number) => (d === 0 ? null : Math.round((n / d) * 1000) / 10);
@@ -277,6 +284,7 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
           "o.lost_reason",
           "o.sold_at",
           "o.sale_value",
+          "o.quote_value",
         ])
         .orderBy("leads.received_at", "desc")
         .limit(q.pageSize)
@@ -287,6 +295,7 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
           ...row,
           name: `${row.first_name} ${row.last_name}`.trim(),
           sale_value: row.sale_value === null ? null : Number(row.sale_value),
+          quote_value: row.quote_value === null ? null : Number(row.quote_value),
         })),
         total: count?.n ?? 0,
         page: q.page,
@@ -349,6 +358,7 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
           "o.lost_reason",
           sql<string | null>`to_char(o.sold_at AT TIME ZONE ${tz}, 'YYYY-MM-DD')`.as("sold"),
           "o.sale_value",
+          "o.quote_value",
           sql<string | null>`to_char(o.synced_at AT TIME ZONE ${tz}, 'YYYY-MM-DD HH24:MI')`.as(
             "updated",
           ),
@@ -375,6 +385,7 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
         "lost_reason",
         "sold",
         "sale_value",
+        "quote_value",
         "updated_from_hubspot",
       ];
       const lines = [header.join(",")];
@@ -396,6 +407,7 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
             row.lost_reason,
             row.sold,
             row.sale_value,
+            row.quote_value,
             row.updated,
           ]
             .map(csvCell)
