@@ -40,6 +40,8 @@ interface Funnel {
   lost: number;
   sold_with_value: number;
   sale_value: number;
+  quoted_value: number;
+  open_quote_value: number;
   contact_rate_pct: number | null;
   conversion_rate_pct: number | null;
   proposal_to_sale_pct: number | null;
@@ -282,7 +284,7 @@ function View() {
       )}
       <ErrorBanner error={summary.error ?? providers.error} />
 
-      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-5">
         {!t ? (
           summary.error ? null : (
             <StatCardsSkeleton />
@@ -313,6 +315,12 @@ function View() {
               label="Sale value"
               value={money(t.sale_value)}
               hint={`${money(t.value_per_lead)} per lead · value on ${p(t.value_coverage_pct)} of sales`}
+              loading={summary.refreshing}
+            />
+            <StatCard
+              label="Quoted value"
+              value={money(t.quoted_value)}
+              hint={`${money(t.open_quote_value)} still open · ${t.proposal_sent.toLocaleString()} proposals`}
               loading={summary.refreshing}
             />
           </>
@@ -410,7 +418,7 @@ function View() {
         >
           {!providers.data ? (
             providers.error ? null : (
-              <TableSkeleton cols={8} rows={4} />
+              <TableSkeleton cols={9} rows={4} />
             )
           ) : sorted.length === 0 ? (
             <EmptyState icon={Trophy} title="No delivered leads in this period" />
@@ -425,6 +433,7 @@ function View() {
                   <Th className="text-right">Proposals</Th>
                   <Th className="text-right">Sold</Th>
                   <Th className="text-right">Conversion</Th>
+                  <Th className="text-right">Quoted</Th>
                   <Th className="text-right">Sale value</Th>
                   <Th className="text-right">Per lead</Th>
                 </tr>
@@ -464,6 +473,7 @@ function View() {
                   <Td className="text-right font-medium tabular-nums">
                     {p(r.conversion_rate_pct)}
                   </Td>
+                  <Td className="text-right tabular-nums">{money(r.quoted_value)}</Td>
                   <Td className="text-right tabular-nums">{money(r.sale_value)}</Td>
                   <Td className="text-right tabular-nums">{money(r.value_per_lead)}</Td>
                 </tr>
@@ -534,7 +544,8 @@ function View() {
         <p className="mt-4 text-xs text-slate-500">
           Dates use the {summary.data.range.timezone} time zone. A sale is a deal that reached an
           Assessments or Installations pipeline; its value is the quote total, or the deal amount
-          when there is no quote total.
+          when there is no quote total. Quoted value is the same figure for every proposal sent,
+          sold or not.
           {sync?.last_run_at ? ` Last read from HubSpot ${fmtDate(sync.last_run_at)}.` : ""}
         </p>
       )}
@@ -575,6 +586,7 @@ interface PerfLead {
   disqualification_reason: string | null;
   sold_at: string | null;
   sale_value: number | null;
+  quote_value: number | null;
 }
 
 /** The leads behind a number on the page, opened by clicking it. */
@@ -648,6 +660,7 @@ function LeadList({
                   <Th>Where it is now</Th>
                   <Th>In HubSpot</Th>
                   <Th>Reason</Th>
+                  <Th className="text-right">Quoted</Th>
                   <Th className="text-right">Sale value</Th>
                 </tr>
               }
@@ -690,6 +703,7 @@ function LeadList({
                   <Td className="text-slate-600">
                     {l.lost_reason ?? l.disqualification_reason ?? "—"}
                   </Td>
+                  <Td className="text-right tabular-nums">{money(l.quote_value)}</Td>
                   <Td className="text-right tabular-nums">{money(l.sale_value)}</Td>
                 </tr>
               ))}

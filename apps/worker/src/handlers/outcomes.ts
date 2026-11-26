@@ -200,6 +200,7 @@ async function saveOutcome(
           sold_at: soldAt,
           sale_value: d?.saleValue ?? null,
           sale_value_field: d?.saleValueField ?? null,
+          quote_value: d?.quoteValue ?? null,
         }
       : {};
 
