@@ -338,6 +338,8 @@ export interface LeadOutcomesTable {
   sale_value_field: "total_amount" | "amount" | null;
   /** The deal's quote total, sold or not (numeric, as a string). */
   quote_value: ColumnType<string | null, number | string | null, number | string | null>;
+  /** The credited deal is linked to the lead itself in HubSpot, not only to its contact. */
+  deal_linked: Generated<boolean>;
   synced_at: Timestamp;
   created_at: CreatedAt;
 }

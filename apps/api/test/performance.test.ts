@@ -1,5 +1,6 @@
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { sql } from "kysely";
 import {
   createDestination,
   createOrganisation,
@@ -342,5 +343,56 @@ describe("HubSpot Lead Company setting on a source", () => {
       .where("action", "=", "platform.updated")
       .execute();
     expect(audits.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("a deal shared by several leads of the same customer", () => {
+  it("is credited to one lead only: the lead it is linked to, else the earliest", async () => {
+    const at = async (ref: string, minutesAgo: number) =>
+      t.db
+        .updateTable("leads")
+        // received_at is never updated by the app; tests move it to order the leads.
+        .set({ received_at: sql<Date>`now() - make_interval(mins => ${minutesAgo})` } as never)
+        .where("lead_ref", "=", ref)
+        .execute();
+    const sale = (dealId: string, value: number, linked: boolean) => ({
+      lead_stage: "Qualified [Create Deal]",
+      deal_count: 1,
+      deal_id: dealId,
+      deal_linked: linked,
+      proposal_sent_at: new Date(),
+      sold: true,
+      sold_at: new Date(),
+      sale_value: value,
+      sale_value_field: "total_amount" as const,
+      quote_value: value,
+    });
+    // Deal D1: PRVA sent the customer first, but the deal is linked to PRVB's later lead.
+    await at(await lead("PRVA", sale("D1", 7000, false), "Shared"), 30);
+    await at(await lead("PRVB", sale("D1", 7000, true), "Shared"), 20);
+    // Deal D2: PRVA sent the same customer twice; neither lead is linked, so the first gets it.
+    const first = await lead("PRVA", sale("D2", 3000, false), "Shared");
+    await at(first, 15);
+    await at(await lead("PRVA", sale("D2", 3000, false), "Shared"), 10);
+
+    const totals = (platform?: string) =>
+      get(
+        staff,
+        `/performance/summary?campaign=Shared${platform ? `&platform=${platform}` : ""}`,
+      ).then((r) => r.json().totals);
+    expect(await totals()).toMatchObject({
+      received: 4,
+      sold: 2,
+      sale_value: 10000,
+      quoted_value: 10000,
+    });
+    expect(await totals("PRVB")).toMatchObject({ received: 1, sold: 1, sale_value: 7000 });
+    expect(await totals("PRVA")).toMatchObject({ received: 3, sold: 1, sale_value: 3000 });
+
+    // The PRVA lead that sold D2 is the first one; its repeat shows no deal.
+    const sold = (
+      await get(staff, "/performance/leads?campaign=Shared&platform=PRVA&step=sold")
+    ).json().items as { lead_ref: string; sale_value: number | null }[];
+    expect(sold).toEqual([expect.objectContaining({ lead_ref: first, sale_value: 3000 })]);
   });
 });

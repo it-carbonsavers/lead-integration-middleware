@@ -214,6 +214,7 @@ describe("sale value and deal choice", () => {
       saleValue: null,
       saleValueField: null,
       quoteValue: null,
+      linked: false,
     };
     const lost = { ...base, dealId: "lost", lost: true };
     const open = { ...base, dealId: "open" };

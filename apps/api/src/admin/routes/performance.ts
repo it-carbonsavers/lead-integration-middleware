@@ -62,6 +62,42 @@ const leadListQuery = performanceQuery.extend({
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
 
+/**
+ * lead_outcomes with each deal credited to one lead only. Several leads of the same customer can
+ * point to the same HubSpot deal; the deal goes to the lead it is linked to in HubSpot, else to
+ * the earliest lead received. The customer's other leads keep their calls and lead stage but not
+ * the deal, so it is counted (and its value added) once.
+ */
+const creditedOutcomes = sql`(
+  SELECT x.lead_id, x.hubspot_lead_id, x.missing, x.lead_stage_id, x.lead_stage,
+    x.lead_stage_changed_at, x.disqualification_reason, x.calls_attempted, x.calls_connected,
+    x.synced_at, x.created_at,
+    CASE WHEN x.credited THEN x.deal_count ELSE 0 END AS deal_count,
+    CASE WHEN x.credited THEN x.deal_id END AS deal_id,
+    CASE WHEN x.credited THEN x.deal_pipeline END AS deal_pipeline,
+    CASE WHEN x.credited THEN x.deal_stage END AS deal_stage,
+    CASE WHEN x.credited THEN x.deal_created_at END AS deal_created_at,
+    CASE WHEN x.credited THEN x.proposal_sent_at END AS proposal_sent_at,
+    CASE WHEN x.credited THEN x.proposal_status END AS proposal_status,
+    x.credited AND x.lost AS lost,
+    CASE WHEN x.credited THEN x.lost_reason END AS lost_reason,
+    x.credited AND x.sold AS sold,
+    CASE WHEN x.credited THEN x.sold_at END AS sold_at,
+    CASE WHEN x.credited THEN x.sale_value END AS sale_value,
+    CASE WHEN x.credited THEN x.sale_value_field END AS sale_value_field,
+    CASE WHEN x.credited THEN x.quote_value END AS quote_value,
+    x.credited AND x.deal_linked AS deal_linked
+  FROM (
+    SELECT lo.*,
+      lo.deal_id IS NULL OR row_number() OVER (
+        PARTITION BY lo.deal_id
+        ORDER BY lo.deal_linked DESC, cl.received_at ASC, cl.id ASC
+      ) = 1 AS credited
+    FROM lead_outcomes lo
+    JOIN leads cl ON cl.id = lo.lead_id
+  ) x
+)`;
+
 // --- Stage rules (on alias o = lead_outcomes) -------------------------------------
 const qualifiedStage = sql<boolean>`(o.lead_stage ILIKE '%qualified%' AND o.lead_stage NOT ILIKE 'disqualified%')`;
 const disqualifiedStage = sql<boolean>`(o.lead_stage_id = 'unqualified-stage-id' OR o.lead_stage ILIKE 'disqualified%')`;
@@ -150,7 +186,9 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
       baseLeadQuery(db, admin),
       { from: q.from, to: q.to, platform: q.platform, dateField: "received_at", status: [] },
       config,
-    ).leftJoin("lead_outcomes as o", "o.lead_id", "leads.id") as unknown as PerfQB;
+    ).leftJoin(creditedOutcomes.as("o"), (j) =>
+      j.onRef(sql.ref("o.lead_id"), "=", sql.ref("leads.id")),
+    ) as unknown as PerfQB;
     // Only leads that went to a destination can have an outcome.
     qb = qb.where("leads.status", "=", "delivered");
     if (q.campaign) qb = qb.where("leads.campaign", "=", q.campaign);
