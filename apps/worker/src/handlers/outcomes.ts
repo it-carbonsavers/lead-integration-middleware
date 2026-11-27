@@ -206,9 +206,35 @@ async function saveOutcome(
       : {};
 
   const values = { ...leadSide, ...dealSide };
-  await db
-    .insertInto("lead_outcomes")
-    .values({ lead_id: leadId, ...values })
-    .onConflict((oc) => oc.column("lead_id").doUpdateSet(values))
-    .execute();
+  await db.transaction().execute(async (trx) => {
+    await trx
+      .insertInto("lead_outcomes")
+      .values({ lead_id: leadId, ...values })
+      .onConflict((oc) => oc.column("lead_id").doUpdateSet(values))
+      .execute();
+    // Every credited deal, replaced as a set (deals can be unlinked or deleted in HubSpot).
+    if (!dealsRead || o.missing) return;
+    await trx.deleteFrom("lead_deals").where("lead_id", "=", leadId).execute();
+    if (o.deals.length === 0) return;
+    await trx
+      .insertInto("lead_deals")
+      .values(
+        o.deals.map((x) => ({
+          lead_id: leadId,
+          deal_id: x.dealId,
+          linked: x.linked,
+          pipeline: x.pipeline,
+          stage: x.stage,
+          deal_created_at: x.createdAt,
+          proposal_sent_at: x.proposalSentAt,
+          lost: x.lost,
+          sold: x.sold,
+          sold_at: x.soldAt ?? (x.dealId === d?.dealId ? soldAt : null),
+          sale_value: x.saleValue,
+          quote_value: x.quoteValue,
+          synced_at: now,
+        })),
+      )
+      .execute();
+  });
 }

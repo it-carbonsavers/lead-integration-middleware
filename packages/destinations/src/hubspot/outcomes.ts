@@ -52,7 +52,10 @@ export interface LeadOutcomeRead {
   callsAttempted: number;
   callsConnected: number;
   dealCount: number;
+  /** The deal that stands for the lead's outcome (see pickCreditedDeal). */
   deal: DealOutcome | null;
+  /** Every deal credited to the lead, so a lead with several sales reports all of them. */
+  deals: DealOutcome[];
 }
 
 /** An existing HubSpot Lead found by its "Lead Company" value. */
@@ -173,6 +176,7 @@ export class HubSpotOutcomeReader {
           callsConnected: 0,
           dealCount: 0,
           deal: null,
+          deals: [],
         };
       }
       const p = lead.properties;
@@ -189,6 +193,7 @@ export class HubSpotOutcomeReader {
         callsConnected: int(p["hs_calls_connected_count"]),
         dealCount: deals.length,
         deal: pickCreditedDeal(deals),
+        deals,
       };
     });
     return { outcomes, dealsUnreadable };
