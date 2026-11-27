@@ -127,7 +127,14 @@ describe("runOutcomeSync", () => {
       total_amount: "8200.50",
       amount: "100",
     });
-    fake.leadDeals.set("10", ["500"]);
+    // A second deal of the same lead, still at the proposal stage.
+    fake.deals.set("501", {
+      pipeline: "p-sales",
+      dealstage: "s-proposal",
+      createdate: new Date().toISOString(),
+      total_amount: "3000",
+    });
+    fake.leadDeals.set("10", ["500", "501"]);
 
     const delivered = await insertLead(hubspotId, { contactId: "c1", leadId: "10" });
     const missing = await insertLead(hubspotId, { contactId: "c2", leadId: "77" });
@@ -150,6 +157,17 @@ describe("runOutcomeSync", () => {
       sale_value_field: "total_amount",
     });
     expect(o!.sold_at).not.toBeNull();
+    // Every deal of the lead is kept, linked to the lead, with its own values.
+    const deals = await t.db
+      .selectFrom("lead_deals")
+      .select(["deal_id", "linked", "sold", "sale_value", "quote_value"])
+      .where("lead_id", "=", delivered)
+      .orderBy("deal_id")
+      .execute();
+    expect(deals).toEqual([
+      { deal_id: "500", linked: true, sold: true, sale_value: "8200.50", quote_value: "8200.50" },
+      { deal_id: "501", linked: true, sold: false, sale_value: null, quote_value: "3000.00" },
+    ]);
     expect(await outcome(missing)).toMatchObject({ missing: true });
     expect(await outcome(viaMock)).toBeUndefined();
     expect(await outcome(failed)).toBeUndefined();

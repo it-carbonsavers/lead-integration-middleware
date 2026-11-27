@@ -63,12 +63,46 @@ const leadListQuery = performanceQuery.extend({
 });
 
 /**
- * lead_outcomes with each deal credited to one lead only. Several leads of the same customer can
- * point to the same HubSpot deal; the deal goes to the lead it is linked to in HubSpot, else to
- * the earliest lead received. The customer's other leads keep their calls and lead stage but not
- * the deal, so it is counted (and its value added) once.
+ * lead_outcomes with deals credited fairly. Several leads of the same customer can point to the
+ * same HubSpot deal, and one lead can have several deals:
+ *  - Each deal is credited to one lead: the lead it is linked to in HubSpot, else the earliest
+ *    lead received. It counts (and its value is added) once.
+ *  - A lead's values are the total of all deals credited to it (lead_deals), so a lead with two
+ *    sales reports both. Leads not yet synced with lead_deals keep their single-deal values.
+ *  - The lead's outcome (sold, lost, proposal...) follows its main deal; a lead whose main deal
+ *    went to another lead keeps its calls and lead stage only.
  */
 const creditedOutcomes = sql`(
+  WITH ranked AS (
+    SELECT d.*, row_number() OVER (
+      PARTITION BY d.deal_id ORDER BY d.linked DESC, cl.received_at ASC, cl.id ASC
+    ) AS rn
+    FROM lead_deals d
+    JOIN leads cl ON cl.id = d.lead_id
+  ),
+  per_lead AS (
+    SELECT lead_id,
+      sum(sale_value) FILTER (WHERE sold) AS sale_value,
+      sum(quote_value) FILTER (WHERE sold OR proposal_sent_at IS NOT NULL
+        OR stage ILIKE '%proposal sent%') AS quote_value,
+      sum(quote_value) FILTER (WHERE NOT sold AND NOT lost AND (proposal_sent_at IS NOT NULL
+        OR stage ILIKE '%proposal sent%')) AS open_quote_value,
+      count(*) FILTER (WHERE sold)::int AS sold_deals,
+      count(*) FILTER (WHERE sold AND sale_value IS NOT NULL)::int AS sold_deals_with_value,
+      string_agg(deal_id, ' ' ORDER BY deal_created_at NULLS LAST, deal_id) AS deal_ids
+    FROM ranked WHERE rn = 1
+    GROUP BY lead_id
+  ),
+  synced AS (SELECT DISTINCT lead_id FROM lead_deals),
+  main AS (
+    SELECT lo.*,
+      lo.deal_id IS NULL OR row_number() OVER (
+        PARTITION BY lo.deal_id
+        ORDER BY lo.deal_linked DESC, ml.received_at ASC, ml.id ASC
+      ) = 1 AS credited
+    FROM lead_outcomes lo
+    JOIN leads ml ON ml.id = lo.lead_id
+  )
   SELECT x.lead_id, x.hubspot_lead_id, x.missing, x.lead_stage_id, x.lead_stage,
     x.lead_stage_changed_at, x.disqualification_reason, x.calls_attempted, x.calls_connected,
     x.synced_at, x.created_at,
@@ -83,19 +117,27 @@ const creditedOutcomes = sql`(
     CASE WHEN x.credited THEN x.lost_reason END AS lost_reason,
     x.credited AND x.sold AS sold,
     CASE WHEN x.credited THEN x.sold_at END AS sold_at,
-    CASE WHEN x.credited THEN x.sale_value END AS sale_value,
     CASE WHEN x.credited THEN x.sale_value_field END AS sale_value_field,
-    CASE WHEN x.credited THEN x.quote_value END AS quote_value,
-    x.credited AND x.deal_linked AS deal_linked
-  FROM (
-    SELECT lo.*,
-      lo.deal_id IS NULL OR row_number() OVER (
-        PARTITION BY lo.deal_id
-        ORDER BY lo.deal_linked DESC, cl.received_at ASC, cl.id ASC
-      ) = 1 AS credited
-    FROM lead_outcomes lo
-    JOIN leads cl ON cl.id = lo.lead_id
-  ) x
+    x.credited AND x.deal_linked AS deal_linked,
+    -- Values: every deal credited to the lead once synced, else its main deal.
+    CASE WHEN s.lead_id IS NOT NULL THEN p.sale_value
+      WHEN x.credited AND x.sold THEN x.sale_value END AS sale_value,
+    CASE WHEN s.lead_id IS NOT NULL THEN p.quote_value
+      WHEN x.credited AND (x.sold OR x.proposal_sent_at IS NOT NULL
+        OR x.deal_stage ILIKE '%proposal sent%') THEN x.quote_value END AS quote_value,
+    CASE WHEN s.lead_id IS NOT NULL THEN p.open_quote_value
+      WHEN x.credited AND NOT x.sold AND NOT x.lost AND (x.proposal_sent_at IS NOT NULL
+        OR x.deal_stage ILIKE '%proposal sent%') THEN x.quote_value END AS open_quote_value,
+    CASE WHEN s.lead_id IS NOT NULL THEN coalesce(p.sold_deals, 0)
+      WHEN x.credited AND x.sold THEN 1 ELSE 0 END AS sold_deals,
+    CASE WHEN s.lead_id IS NOT NULL THEN coalesce(p.sold_deals_with_value, 0)
+      WHEN x.credited AND x.sold AND x.sale_value IS NOT NULL THEN 1 ELSE 0 END
+      AS sold_deals_with_value,
+    CASE WHEN s.lead_id IS NOT NULL THEN p.deal_ids
+      WHEN x.credited THEN x.deal_id END AS deal_ids
+  FROM main x
+  LEFT JOIN synced s ON s.lead_id = x.lead_id
+  LEFT JOIN per_lead p ON p.lead_id = x.lead_id
 )`;
 
 // --- Stage rules (on alias o = lead_outcomes) -------------------------------------
@@ -129,15 +171,13 @@ const funnel = () => [
   sql<number>`count(*) FILTER (WHERE ${proposal})::int`.as("proposal_sent"),
   sql<number>`count(*) FILTER (WHERE o.sold)::int`.as("sold"),
   sql<number>`count(*) FILTER (WHERE o.lost)::int`.as("lost"),
-  sql<number>`count(*) FILTER (WHERE o.sold AND o.sale_value IS NOT NULL)::int`.as(
-    "sold_with_value",
-  ),
-  sql<number>`coalesce(sum(o.sale_value) FILTER (WHERE o.sold), 0)::float`.as("sale_value"),
+  // Values add up every deal credited to the leads (each deal once), see creditedOutcomes.
+  sql<number>`coalesce(sum(o.sold_deals), 0)::int`.as("sold_deals"),
+  sql<number>`coalesce(sum(o.sold_deals_with_value), 0)::int`.as("sold_with_value"),
+  sql<number>`coalesce(sum(o.sale_value), 0)::float`.as("sale_value"),
   // What was quoted on every proposal sent, and the part still open (not sold, not lost).
-  sql<number>`coalesce(sum(o.quote_value) FILTER (WHERE ${proposal}), 0)::float`.as("quoted_value"),
-  sql<number>`coalesce(sum(o.quote_value) FILTER (WHERE ${proposal} AND NOT o.sold AND NOT o.lost), 0)::float`.as(
-    "open_quote_value",
-  ),
+  sql<number>`coalesce(sum(o.quote_value), 0)::float`.as("quoted_value"),
+  sql<number>`coalesce(sum(o.open_quote_value), 0)::float`.as("open_quote_value"),
 ];
 
 interface FunnelRow {
@@ -149,6 +189,7 @@ interface FunnelRow {
   proposal_sent: number;
   sold: number;
   lost: number;
+  sold_deals: number;
   sold_with_value: number;
   sale_value: number;
   quoted_value: number;
@@ -161,11 +202,18 @@ const rates = (f: FunnelRow) => ({
   conversion_rate_pct: pct(f.sold, f.received),
   proposal_to_sale_pct: pct(f.sold, f.proposal_sent),
   value_per_lead: f.received ? Math.round((f.sale_value / f.received) * 100) / 100 : null,
-  value_coverage_pct: pct(f.sold_with_value, f.sold),
+  value_coverage_pct: pct(f.sold_with_value, f.sold_deals),
 });
 
 type PerfQB = SelectQueryBuilder<
-  Database & { o: Database["lead_outcomes"] },
+  Database & {
+    o: Database["lead_outcomes"] & {
+      open_quote_value: string | null;
+      sold_deals: number;
+      sold_deals_with_value: number;
+      deal_ids: string | null;
+    };
+  },
   "leads" | "platforms" | "o",
   object
 >;
@@ -397,6 +445,7 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
           sql<string | null>`to_char(o.sold_at AT TIME ZONE ${tz}, 'YYYY-MM-DD')`.as("sold"),
           "o.sale_value",
           "o.quote_value",
+          "o.deal_ids",
           sql<string | null>`to_char(o.synced_at AT TIME ZONE ${tz}, 'YYYY-MM-DD HH24:MI')`.as(
             "updated",
           ),
@@ -424,6 +473,7 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
         "sold",
         "sale_value",
         "quote_value",
+        "hubspot_deal_ids",
         "updated_from_hubspot",
       ];
       const lines = [header.join(",")];
@@ -446,6 +496,7 @@ export async function adminPerformanceRoutes(app: FastifyInstance, opts: AdminRo
             row.sold,
             row.sale_value,
             row.quote_value,
+            row.deal_ids,
             row.updated,
           ]
             .map(csvCell)

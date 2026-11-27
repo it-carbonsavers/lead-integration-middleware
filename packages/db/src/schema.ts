@@ -312,6 +312,23 @@ export interface TransferJobsTable {
   finished_at: Date | null;
 }
 
+/** Every HubSpot deal credited to a lead (see migration 0015). */
+export interface LeadDealsTable {
+  lead_id: string;
+  deal_id: string;
+  linked: Generated<boolean>;
+  pipeline: string | null;
+  stage: string | null;
+  deal_created_at: Date | null;
+  proposal_sent_at: Date | null;
+  lost: Generated<boolean>;
+  sold: Generated<boolean>;
+  sold_at: Date | null;
+  sale_value: ColumnType<string | null, number | string | null, number | string | null>;
+  quote_value: ColumnType<string | null, number | string | null, number | string | null>;
+  synced_at: Timestamp;
+}
+
 export interface LeadOutcomesTable {
   lead_id: string;
   hubspot_lead_id: string;
@@ -373,6 +390,7 @@ export interface Database {
   transfer_jobs: TransferJobsTable;
   service_status: ServiceStatusTable;
   lead_outcomes: LeadOutcomesTable;
+  lead_deals: LeadDealsTable;
 }
 
 export type Organisation = Selectable<OrganisationsTable>;

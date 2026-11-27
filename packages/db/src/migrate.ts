@@ -20,6 +20,7 @@ import * as m0011 from "./migrations/0011_lead_outcomes.js";
 import * as m0012 from "./migrations/0012_hubspot_lead_import.js";
 import * as m0013 from "./migrations/0013_quote_value.js";
 import * as m0014 from "./migrations/0014_deal_credit.js";
+import * as m0015 from "./migrations/0015_lead_deals.js";
 
 export const MIGRATIONS: Record<string, Migration> = {
   "0001_foundation": m0001,
@@ -36,6 +37,7 @@ export const MIGRATIONS: Record<string, Migration> = {
   "0012_hubspot_lead_import": m0012,
   "0013_quote_value": m0013,
   "0014_deal_credit": m0014,
+  "0015_lead_deals": m0015,
 };
 
 const TABLE = "schema_migrations";

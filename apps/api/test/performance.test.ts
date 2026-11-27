@@ -396,3 +396,72 @@ describe("a deal shared by several leads of the same customer", () => {
     expect(sold).toEqual([expect.objectContaining({ lead_ref: first, sale_value: 3000 })]);
   });
 });
+
+describe("a lead with several deals", () => {
+  it("adds up every deal credited to the lead, each deal once, and exports the deal ids", async () => {
+    const dealRow = (dealId: string, v: { sold?: boolean; linked?: boolean; quote: number }) => ({
+      deal_id: dealId,
+      linked: v.linked ?? false,
+      pipeline: v.sold ? "Assessments" : "Sales",
+      stage: v.sold ? "To Be Assessed" : "Proposal Sent",
+      proposal_sent_at: new Date(),
+      sold: v.sold ?? false,
+      sale_value: v.sold ? v.quote : null,
+      quote_value: v.quote,
+    });
+    const idOf = async (ref: string) =>
+      (
+        await t.db
+          .selectFrom("leads")
+          .select("id")
+          .where("lead_ref", "=", ref)
+          .executeTakeFirstOrThrow()
+      ).id;
+    const main = {
+      lead_stage: "Qualified [Create Deal]",
+      deal_count: 2,
+      deal_id: "D3",
+      deal_linked: true,
+      proposal_sent_at: new Date(),
+      sold: true,
+      sale_value: 5000,
+      quote_value: 5000,
+    };
+    // One lead: a sale of 5000 (D3) and an open proposal of 2000 (D4).
+    const a = await lead("PRVA", main, "Multi");
+    await t.db
+      .insertInto("lead_deals")
+      .values([
+        { lead_id: await idOf(a), ...dealRow("D3", { sold: true, linked: true, quote: 5000 }) },
+        { lead_id: await idOf(a), ...dealRow("D4", { linked: true, quote: 2000 }) },
+      ])
+      .execute();
+    // A later lead of the same customer sees D3 through the contact: it is not counted again.
+    const b = await lead("PRVA", { ...main, deal_linked: false, deal_count: 1 }, "Multi");
+    await t.db
+      .insertInto("lead_deals")
+      .values({ lead_id: await idOf(b), ...dealRow("D3", { sold: true, quote: 5000 }) })
+      .execute();
+
+    const totals = (await get(staff, "/performance/summary?campaign=Multi")).json().totals;
+    expect(totals).toMatchObject({
+      received: 2,
+      sold: 1,
+      sold_deals: 1,
+      sale_value: 5000,
+      quoted_value: 7000,
+      open_quote_value: 2000,
+      value_coverage_pct: 100,
+    });
+
+    const csv = (await get(staff, "/performance/export.csv?campaign=Multi")).body
+      .trim()
+      .split("\r\n");
+    const head = csv[0]!.split(",");
+    const col = head.indexOf("hubspot_deal_ids");
+    expect(col).toBeGreaterThan(-1);
+    const byRef = new Map(csv.slice(1).map((l) => [l.split(",")[0], l.split(",")]));
+    expect(byRef.get(a)![col]).toBe("D3 D4");
+    expect(byRef.get(b)![col]).toBe("");
+  });
+});
