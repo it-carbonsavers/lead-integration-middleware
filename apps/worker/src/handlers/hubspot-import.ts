@@ -3,6 +3,7 @@
  *
  * For each active source with a "HubSpot Lead Company" set, every HubSpot Lead (all time) whose
  * lead_company equals it is recorded as a lead of that source with origin 'hubspot_import'.
+ * The first run reads them all; later runs read only leads created since the newest imported one.
  * READ-ONLY towards HubSpot. The lead's HubSpot contact details (name, phone, email, address) are
  * copied and stored encrypted like any other lead, and refreshed on every run until the lead is
  * anonymised by retention. Leads this system delivered itself (they carry lim_lead_ref) are
@@ -81,7 +82,16 @@ export async function importHubSpotLeads(deps: ImportDeps): Promise<ImportResult
         continue;
       }
 
-      const found = (await reader.findLeadsByCompany(company)).filter((f) => !f.limLeadRef);
+      // After the first import, only read leads created since the newest one already imported
+      // (with a day of overlap), so each run stays small however many leads the source has.
+      const newest = await db
+        .selectFrom("leads")
+        .select((eb) => eb.fn.max("received_at").as("at"))
+        .where("platform_id", "=", s.id)
+        .where("origin", "=", "hubspot_import")
+        .executeTakeFirst();
+      const since = newest?.at ? new Date(new Date(newest.at).getTime() - 86_400_000) : undefined;
+      const found = (await reader.findLeadsByCompany(company, since)).filter((f) => !f.limLeadRef);
       const known = new Set(
         (
           await db

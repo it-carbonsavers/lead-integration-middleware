@@ -153,6 +153,39 @@ describe("HubSpot outcome reader", () => {
   });
 });
 
+describe("finding a source's leads by Lead Company", () => {
+  it("reads past HubSpot's per-query search limit, oldest first, without duplicates", async () => {
+    const fake = new FakeHubSpotCrm();
+    fake.searchLimit = 4;
+    const at = (day: number) => new Date(Date.UTC(2026, 0, day)).toISOString();
+    // Eleven leads of this company; two share a creation time across a window boundary.
+    const days = [1, 2, 3, 4, 4, 5, 6, 7, 8, 9, 10];
+    days.forEach((d, i) =>
+      fake.leads.set(String(100 + i), { lead_company: "Example Co", hs_createdate: at(d) }),
+    );
+    fake.leads.set("200", { lead_company: "Other Co", hs_createdate: at(5) });
+
+    const r = new HubSpotOutcomeReader({
+      enabled: true,
+      baseUrl: "https://hubspot.fake",
+      token: "test-token",
+      soldPipelinePattern: /assessment/i,
+      fetch: fake.fetch,
+      sleep: async () => {},
+      searchPage: 2,
+      searchLimit: 4,
+    });
+    const all = await r.findLeadsByCompany("Example Co");
+    expect(all.map((f) => f.hubspotLeadId).sort()).toEqual(
+      days.map((_, i) => String(100 + i)).sort(),
+    );
+
+    // With a start date, only leads created from then on.
+    const recent = await r.findLeadsByCompany("Example Co", new Date(at(8)));
+    expect(recent.map((f) => f.hubspotLeadId)).toEqual(["108", "109", "110"]);
+  });
+});
+
 describe("sale value and deal choice", () => {
   it("uses total_amount, falling back to amount; zero or empty counts as no value", () => {
     expect(saleValue({ total_amount: "12000", amount: "500" })).toEqual({
