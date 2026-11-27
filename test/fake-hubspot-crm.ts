@@ -13,6 +13,8 @@ export class FakeHubSpotCrm {
   leadContacts = new Map<string, string[]>();
   contacts = new Map<string, Props>();
   calls: { method: string; path: string }[] = [];
+  /** Like HubSpot, a search query cannot page past this many results (400 beyond it). */
+  searchLimit = 10_000;
   /** HTTP status to return for deal and association reads (e.g. 403 when the scope is missing). */
   dealsStatus = 200;
 
@@ -62,15 +64,34 @@ export class FakeHubSpotCrm {
 
     const ids = ((body?.inputs ?? []) as { id: string }[]).map((i) => i.id);
     if (method === "POST" && p === "/crm/v3/objects/leads/search") {
-      const f = body.filterGroups[0].filters[0] as { propertyName: string; value: string };
-      const hits = [...this.leads.entries()].filter(([, l]) => l[f.propertyName] === f.value);
+      const filters = body.filterGroups[0].filters as {
+        propertyName: string;
+        operator: "EQ" | "GTE";
+        value: string;
+      }[];
+      const ms = (v: string | undefined) => (v ? new Date(v).getTime() : NaN);
+      const hits = [...this.leads.entries()]
+        .filter(([, l]) =>
+          filters.every((f) =>
+            f.operator === "GTE"
+              ? ms(l[f.propertyName]) >= Number(f.value)
+              : l[f.propertyName] === f.value,
+          ),
+        )
+        .sort(([, a], [, b]) => ms(a.hs_createdate) - ms(b.hs_createdate));
+      const after = Number(body.after ?? 0);
+      const limit = Number(body.limit ?? 10);
+      if (after + limit > this.searchLimit) return json(400, { category: "VALIDATION_ERROR" });
+      const page = hits.slice(after, after + limit);
+      const next = after + limit < hits.length ? { next: { after: String(after + limit) } } : {};
       return json(200, {
         total: hits.length,
         results: read(
-          new Map(hits),
-          hits.map(([id]) => id),
+          new Map(page),
+          page.map(([id]) => id),
           body.properties,
         ),
+        paging: next,
       });
     }
     if (method === "POST" && p === "/crm/v4/associations/leads/contacts/batch/read")

@@ -110,10 +110,16 @@ const DEAL_PROPERTIES = [
   "amount",
 ];
 const BATCH = 100;
+/** HubSpot search: results per page, and the most one query can page through. */
+const SEARCH_PAGE = 100;
+const SEARCH_LIMIT = 10_000;
 
 export interface OutcomeReaderOptions extends HubSpotClientOptions {
   /** Deal pipelines whose label matches count as sold. */
   soldPipelinePattern: RegExp;
+  /** HubSpot search paging: results per page and per query (tests use small values). */
+  searchPage?: number;
+  searchLimit?: number;
 }
 
 export class HubSpotOutcomeReader {
@@ -188,37 +194,70 @@ export class HubSpotOutcomeReader {
 
   /**
    * Every HubSpot Lead whose Lead Company (custom property lead_company) equals `company`, oldest
-   * first, with its contact. Reads only ids, dates and our own reference: no personal data.
+   * first, with its contact. With `since`, only leads created at or after it. Reads only ids,
+   * dates and our own reference: no personal data.
+   *
+   * HubSpot search returns at most 10,000 results per query, so the leads are read in windows:
+   * when a query reaches that limit, a new query starts from the last creation date seen.
    */
-  async findLeadsByCompany(company: string, max = 10_000): Promise<CompanyLead[]> {
+  async findLeadsByCompany(company: string, since?: Date): Promise<CompanyLead[]> {
     this.client.guard();
     const found: CompanyLead[] = [];
-    let after: string | undefined;
-    do {
-      const page = await this.client.request<{
-        results?: HsObject[];
-        paging?: { next?: { after?: string } };
-      }>("POST", "/crm/v3/objects/leads/search", {
-        filterGroups: [
-          { filters: [{ propertyName: "lead_company", operator: "EQ", value: company }] },
-        ],
-        properties: ["hs_createdate", "lim_lead_ref"],
-        sorts: [{ propertyName: "hs_createdate", direction: "ASCENDING" }],
-        limit: BATCH,
-        ...(after ? { after } : {}),
-      });
-      for (const o of page.results ?? []) {
-        const createdAt = date(o.properties["hs_createdate"]);
-        if (!createdAt) continue;
-        found.push({
-          hubspotLeadId: o.id,
-          contactId: null,
-          createdAt,
-          limLeadRef: text(o.properties["lim_lead_ref"]),
+    const seen = new Set<string>();
+    const pageSize = this.opts.searchPage ?? SEARCH_PAGE;
+    const limit = this.opts.searchLimit ?? SEARCH_LIMIT;
+    let from = since ?? null;
+    for (;;) {
+      let after: string | undefined;
+      let inQuery = 0;
+      let last: Date | null = null;
+      do {
+        const page = await this.client.request<{
+          results?: HsObject[];
+          paging?: { next?: { after?: string } };
+        }>("POST", "/crm/v3/objects/leads/search", {
+          filterGroups: [
+            {
+              filters: [
+                { propertyName: "lead_company", operator: "EQ", value: company },
+                ...(from
+                  ? [
+                      {
+                        propertyName: "hs_createdate",
+                        operator: "GTE",
+                        value: String(from.getTime()),
+                      },
+                    ]
+                  : []),
+              ],
+            },
+          ],
+          properties: ["hs_createdate", "lim_lead_ref"],
+          sorts: [{ propertyName: "hs_createdate", direction: "ASCENDING" }],
+          limit: pageSize,
+          ...(after ? { after } : {}),
         });
-      }
-      after = page.paging?.next?.after;
-    } while (after && found.length < max);
+        const results = page.results ?? [];
+        inQuery += results.length;
+        for (const o of results) {
+          const createdAt = date(o.properties["hs_createdate"]);
+          if (!createdAt) continue;
+          last = createdAt;
+          if (seen.has(o.id)) continue;
+          seen.add(o.id);
+          found.push({
+            hubspotLeadId: o.id,
+            contactId: null,
+            createdAt,
+            limLeadRef: text(o.properties["lim_lead_ref"]),
+          });
+        }
+        after = page.paging?.next?.after;
+      } while (after && inQuery + pageSize <= limit);
+      // Done, unless this query stopped at HubSpot's limit with more to read.
+      if (!after || !last || (from && last.getTime() <= from.getTime())) break;
+      from = last;
+    }
 
     const contacts = await this.associationsTo(
       "leads",

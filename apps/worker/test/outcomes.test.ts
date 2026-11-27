@@ -299,12 +299,22 @@ describe("importing existing HubSpot leads for a source", () => {
       ),
     ).toBe(true);
 
-    // Running again adds nothing.
+    // Running again adds nothing, and only reads leads created since the newest imported one.
     const again = await runOutcomeSync(deps(fake));
     expect(again.imported).toContainEqual({
       platform: code,
-      found: 2,
+      found: 1,
       added: 0,
+      detailsUpdated: 1,
+    });
+
+    // A new lead of this company in HubSpot is added on the next run.
+    fake.leads.set("905", { lead_company: "Example Co", hs_createdate: new Date().toISOString() });
+    const next = await runOutcomeSync(deps(fake));
+    expect(next.imported).toContainEqual({
+      platform: code,
+      found: 2,
+      added: 1,
       detailsUpdated: 1,
     });
   });
