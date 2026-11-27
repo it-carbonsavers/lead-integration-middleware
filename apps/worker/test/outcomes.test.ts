@@ -305,7 +305,8 @@ describe("importing existing HubSpot leads for a source", () => {
       platform: code,
       found: 1,
       added: 0,
-      detailsUpdated: 1,
+      // Details were copied on the first run; they are not read again.
+      detailsUpdated: 0,
     });
 
     // A new lead of this company in HubSpot is added on the next run.
@@ -315,7 +316,7 @@ describe("importing existing HubSpot leads for a source", () => {
       platform: code,
       found: 2,
       added: 1,
-      detailsUpdated: 1,
+      detailsUpdated: 0,
     });
   });
 });

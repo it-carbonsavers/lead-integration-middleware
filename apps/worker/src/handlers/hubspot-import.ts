@@ -5,8 +5,8 @@
  * lead_company equals it is recorded as a lead of that source with origin 'hubspot_import'.
  * The first run reads them all; later runs read only leads created since the newest imported one.
  * READ-ONLY towards HubSpot. The lead's HubSpot contact details (name, phone, email, address) are
- * copied and stored encrypted like any other lead, and refreshed on every run until the lead is
- * anonymised by retention. Leads this system delivered itself (they carry lim_lead_ref) are
+ * copied once and stored encrypted like any other lead. Only leads still without them are read on
+ * each run, so a run stays quick however many leads the source has. Leads this system delivered itself (they carry lim_lead_ref) are
  * skipped. Re-running is safe: a lead is only added once.
  *
  * Runs at the start of every outcome sync, so it is off unless OUTCOME_SYNC_ENABLED is true.
@@ -146,8 +146,8 @@ export async function importHubSpotLeads(deps: ImportDeps): Promise<ImportResult
 }
 
 /**
- * Copies each imported lead's HubSpot contact details into the lead, encrypted like API leads.
- * Leads already anonymised by retention are left alone.
+ * Copies HubSpot contact details into imported leads that do not have them yet (they still carry
+ * the placeholder name), encrypted like API leads. Leads anonymised by retention are left alone.
  */
 async function refreshContactDetails(
   db: Kysely<Database>,
@@ -161,6 +161,8 @@ async function refreshContactDetails(
     .where("platform_id", "=", platformId)
     .where("origin", "=", "hubspot_import")
     .where("anonymised_at", "is", null)
+    .where("first_name", "=", IMPORTED_FIRST_NAME)
+    .where("last_name", "=", IMPORTED_LAST_NAME)
     .execute();
   const withContact = rows.filter((r): r is { id: string; contactId: string } => !!r.contactId);
   if (withContact.length === 0) return 0;
