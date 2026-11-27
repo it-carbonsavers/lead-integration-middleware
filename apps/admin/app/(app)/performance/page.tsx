@@ -297,15 +297,15 @@ function View() {
               loading={summary.refreshing}
             />
             <StatCard
-              label="Sale value"
-              value={money(t.sale_value)}
-              hint={`${money(t.value_per_lead)} per lead · value on ${p(t.value_coverage_pct)} of sales`}
-              loading={summary.refreshing}
-            />
-            <StatCard
               label="Quoted value"
               value={money(t.quoted_value)}
               hint={`${money(t.open_quote_value)} still open · ${t.proposal_sent.toLocaleString()} proposals`}
+              loading={summary.refreshing}
+            />
+            <StatCard
+              label="Sale value"
+              value={money(t.sale_value)}
+              hint={`${money(t.value_per_lead)} per lead · value on ${p(t.value_coverage_pct)} of sales`}
               loading={summary.refreshing}
             />
           </>
