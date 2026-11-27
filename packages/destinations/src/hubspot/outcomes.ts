@@ -37,6 +37,8 @@ export interface DealOutcome {
   saleValueField: "total_amount" | "amount" | null;
   /** What was quoted (total_amount, else amount), whether or not the deal is sold. */
   quoteValue: number | null;
+  /** Linked to the HubSpot Lead itself, not only to the lead's contact. */
+  linked: boolean;
 }
 
 export interface LeadOutcomeRead {
@@ -332,10 +334,9 @@ export class HubSpotOutcomeReader {
       [...allDealIds],
       [...DEAL_PROPERTIES, ...enteredProps],
     );
-    const parsed = new Map<string, DealOutcome & { contactDeal: boolean }>();
-    for (const d of deals.values()) {
-      parsed.set(d.id, { ...toDealOutcome(d, dealPipelines, soldPipelines), contactDeal: false });
-    }
+    const parsed = new Map<string, DealOutcome>();
+    for (const d of deals.values())
+      parsed.set(d.id, toDealOutcome(d, dealPipelines, soldPipelines));
 
     const result = new Map<string, DealOutcome[]>();
     for (const l of live) {
@@ -345,13 +346,12 @@ export class HubSpotOutcomeReader {
         // Rule 1: a contact's deal is credited only if it was created after the lead arrived.
         if (deal?.createdAt && deal.createdAt.getTime() >= l.receivedAt.getTime()) ids.add(id);
       }
+      const linked = new Set(byLead.get(l.hubspotLeadId) ?? []);
       const list = [...ids]
         .map((id) => parsed.get(id))
-        .filter((d): d is DealOutcome & { contactDeal: boolean } => !!d);
-      result.set(
-        l.hubspotLeadId,
-        list.map(({ contactDeal: _ignored, ...d }) => d),
-      );
+        .filter((d): d is DealOutcome => !!d)
+        .map((d) => ({ ...d, linked: linked.has(d.dealId) }));
+      result.set(l.hubspotLeadId, list);
     }
     return result;
   }
@@ -442,6 +442,7 @@ export function toDealOutcome(
     saleValue: sold ? sale.value : null,
     saleValueField: sold ? sale.field : null,
     quoteValue: sale.value,
+    linked: false,
   };
 }
 
@@ -462,7 +463,11 @@ export function saleValue(p: Record<string, string | null | undefined>): {
  * The deal that represents the lead's outcome: a sale first (earliest), then an open deal with a
  * proposal, then any open deal, then a lost one. Ties go to the most recently created deal.
  */
-export function pickCreditedDeal(deals: DealOutcome[]): DealOutcome | null {
+export function pickCreditedDeal(all: DealOutcome[]): DealOutcome | null {
+  // A deal linked to the lead itself in HubSpot wins over the contact's other deals, so a
+  // returning customer's later deal (for example from another provider's lead) is not taken.
+  const own = all.filter((d) => d.linked);
+  const deals = own.length ? own : all;
   const rank = (d: DealOutcome) => (d.sold ? 0 : d.lost ? 3 : d.proposalSentAt ? 1 : 2);
   const sorted = [...deals].sort((a, b) => {
     const r = rank(a) - rank(b);
