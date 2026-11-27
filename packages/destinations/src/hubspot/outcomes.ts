@@ -463,7 +463,11 @@ export function saleValue(p: Record<string, string | null | undefined>): {
  * The deal that represents the lead's outcome: a sale first (earliest), then an open deal with a
  * proposal, then any open deal, then a lost one. Ties go to the most recently created deal.
  */
-export function pickCreditedDeal(deals: DealOutcome[]): DealOutcome | null {
+export function pickCreditedDeal(all: DealOutcome[]): DealOutcome | null {
+  // A deal linked to the lead itself in HubSpot wins over the contact's other deals, so a
+  // returning customer's later deal (for example from another provider's lead) is not taken.
+  const own = all.filter((d) => d.linked);
+  const deals = own.length ? own : all;
   const rank = (d: DealOutcome) => (d.sold ? 0 : d.lost ? 3 : d.proposalSentAt ? 1 : 2);
   const sorted = [...deals].sort((a, b) => {
     const r = rank(a) - rank(b);

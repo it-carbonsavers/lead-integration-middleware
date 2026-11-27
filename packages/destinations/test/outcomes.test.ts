@@ -199,31 +199,40 @@ describe("sale value and deal choice", () => {
     expect(saleValue({ total_amount: "", amount: "" })).toEqual({ value: null, field: null });
   });
 
+  const base = (): DealOutcome => ({
+    dealId: "x",
+    pipeline: "",
+    stage: "",
+    createdAt: new Date("2026-11-02"),
+    proposalSentAt: null,
+    proposalStatus: null,
+    lost: false,
+    lostReason: null,
+    sold: false,
+    soldAt: null,
+    saleValue: null,
+    saleValueField: null,
+    quoteValue: null,
+    linked: false,
+  });
+
   it("prefers a sale, then a proposal, then an open deal, then a lost one", () => {
-    const base: DealOutcome = {
-      dealId: "x",
-      pipeline: "",
-      stage: "",
-      createdAt: new Date("2026-11-02"),
-      proposalSentAt: null,
-      proposalStatus: null,
-      lost: false,
-      lostReason: null,
-      sold: false,
-      soldAt: null,
-      saleValue: null,
-      saleValueField: null,
-      quoteValue: null,
-      linked: false,
-    };
-    const lost = { ...base, dealId: "lost", lost: true };
-    const open = { ...base, dealId: "open" };
-    const proposal = { ...base, dealId: "proposal", proposalSentAt: new Date("2026-11-04") };
-    const sold = { ...base, dealId: "sold", sold: true };
+    const lost = { ...base(), dealId: "lost", lost: true };
+    const open = { ...base(), dealId: "open" };
+    const proposal = { ...base(), dealId: "proposal", proposalSentAt: new Date("2026-11-04") };
+    const sold = { ...base(), dealId: "sold", sold: true };
     expect(pickCreditedDeal([lost, open, proposal, sold])!.dealId).toBe("sold");
     expect(pickCreditedDeal([lost, open, proposal])!.dealId).toBe("proposal");
     expect(pickCreditedDeal([lost, open])!.dealId).toBe("open");
     expect(pickCreditedDeal([lost])!.dealId).toBe("lost");
     expect(pickCreditedDeal([])).toBeNull();
+  });
+
+  it("takes the lead's own linked deal over the customer's other deals", () => {
+    const own = { ...base(), dealId: "own", proposalSentAt: new Date("2026-11-04"), linked: true };
+    const other = { ...base(), dealId: "other", sold: true };
+    expect(pickCreditedDeal([other, own])!.dealId).toBe("own");
+    // Without a linked deal, the customer's deals are ranked as usual.
+    expect(pickCreditedDeal([other, { ...own, linked: false }])!.dealId).toBe("other");
   });
 });
