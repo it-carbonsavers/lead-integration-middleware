@@ -94,14 +94,12 @@ function View() {
   const to = params.get("to") ?? iso(new Date());
   const platform = params.get("platform") ?? "";
   const campaign = params.get("campaign") ?? "";
-  const outcome = params.get("outcome") ?? "";
   const sort = params.get("sort") ?? "conversion";
   const qs = new URLSearchParams({
     from,
     to,
     ...(platform ? { platform } : {}),
     ...(campaign ? { campaign } : {}),
-    ...(outcome ? { outcome } : {}),
   }).toString();
 
   const options = useLoad(
@@ -251,19 +249,6 @@ function View() {
           {summary.data?.campaigns.map((c) => (
             <option key={c} value={c}>
               {c}
-            </option>
-          ))}
-        </Select>
-        <Select
-          className="w-52"
-          value={outcome}
-          onChange={(e) => set({ outcome: e.target.value || null })}
-          aria-label="Outcome"
-        >
-          <option value="">All outcomes</option>
-          {Object.entries(OUTCOME_LABEL).map(([k, v]) => (
-            <option key={k} value={k}>
-              {v}
             </option>
           ))}
         </Select>
