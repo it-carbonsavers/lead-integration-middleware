@@ -114,7 +114,7 @@ export const envSchema = z
     /** Leads received within this many days keep being refreshed. */
     OUTCOME_SYNC_WINDOW_DAYS: intFromEnv(180, 1, 730),
     /** Most leads refreshed per run (oldest refresh first). */
-    OUTCOME_SYNC_BATCH: intFromEnv(500, 1, 5_000),
+    OUTCOME_SYNC_BATCH: intFromEnv(2_000, 1, 5_000),
     /** Deal pipelines whose name matches (case-insensitive) count as a sale. */
     OUTCOME_SOLD_PIPELINES: z
       .string()
